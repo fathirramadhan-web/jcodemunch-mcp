@@ -190,6 +190,15 @@ def test_a_module_level_binding_is_a_symbol(language, filename, scope, source, n
         ("ambient declaration", "declare const AMB: string;", "AMB"),
         ("namespace body", "namespace NS { let ni = 1; }", "ni"),
         ("declared module body", 'declare module "m" { let mi = 1; }', "mi"),
+        # ⚠⚠ `declare global` is the THIRD block owner and the one this file
+        # first shipped without a case for: deleting `ambient_declaration` from
+        # `_JS_BINDING_MEMBER_BLOCK_OWNERS` left the whole suite green, while
+        # every other member position failed loudly. A global augmentation is
+        # the shape a `.d.ts` is written in, so the regression it hides drops
+        # real declared surface — quietly, because the allowlist fails closed.
+        # Found in review.
+        ("declare global body", "declare global { let gi = 1; }", "gi"),
+        ("declare global const", "declare global { const GC = 1; }", "GC"),
     ],
 )
 def test_a_typescript_module_level_parent_is_also_a_member_parent(

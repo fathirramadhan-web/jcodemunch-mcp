@@ -401,9 +401,21 @@ def test_every_extraction_channel_is_covered():
     test above exists to refuse, and it would otherwise be unwatched in the
     silence that #725 describes.
 
-    ⚠ `constant_patterns` is excluded BY NAME and has its own, older gate --
-    `tests/test_constant_extraction_guard.py`, one sample per declaring
-    language with a named exemption list (#428).
+    ⚠ TWO exemptions, both BY NAME, and each needs its own reason or this test
+    becomes the escape hatch it exists to close:
+
+    * `constant_patterns` has its own, older gate --
+      `tests/test_constant_extraction_guard.py`, one sample per declaring
+      language with a named exemption list (#428). Covered elsewhere, not
+      unwatched.
+    * `type_patterns` is one of the two lists #725 found DEAD: declared by 19
+      of the 79 specs and read by nothing. It is exempt because it is the
+      defect, not because it is fine -- requiring a sample here would demand 19
+      samples for a channel no code consults, which is a test asserting a
+      property the product does not have. ⚠⚠ **If `type_patterns` ever gains a
+      reader, delete this exemption rather than adding a row to it**; an entry
+      that outlives its reason is #724's shape, and this one names a live
+      defect that will one day be fixed.
     """
     import dataclasses
 
