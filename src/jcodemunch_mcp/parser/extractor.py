@@ -7380,17 +7380,80 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return source[child.start_byte:child.end_byte]
         return None
 
+    def _short_function_name(node) -> Optional[str]:
+        """Julia's short form `f(x) = x + 1`, which the grammar calls `assignment`.
+
+        ⚠⚠ **There is no `short_function_definition` node kind (#738).** This
+        extractor matched that literal for its whole life, it matched nothing,
+        and nothing failed -- #722's shape, found only by #724's inventory. The
+        spelling was UNESTABLISHED when the issue was filed; asked of the
+        compiled grammar over eleven shapes, a short form is an `assignment`
+        whose first named child is a `call_expression`.
+
+        ⚠⚠ **The predicate is the SHAPE OF THE LEFT SIDE, and that is what keeps
+        the blast radius equal to the defect.** An `assignment` is the most
+        common statement in Julia, so matching the node type alone would index
+        every variable in every Julia file as a function -- the widening #732
+        took by accident in Kotlin and spent three review rounds undoing.
+        Measured, the left side discriminates exactly: `call_expression` yes;
+        `identifier` (`x = 1`, and `h = z -> z*2`), `index_expression`
+        (`a[i] = 1`), `field_expression` (`a.b = 1`) and `open_tuple`
+        (`a, b = 1, 2`) all no.
+
+        ⚠ `where_expression` wraps the call in `k(x::T) where T = x`, so a
+        one-level check finds no `call_expression` and silently indexes nothing
+        for generic definitions -- ordinary in numerical code, and the near-miss
+        this unwraps.
+
+        ⚠ Returns None for a call with no plain identifier: `Base.length(x) = 1`
+        puts a `field_expression` there and `(m::Model)(x) = x` a
+        `parenthesized_expression`. **The LONG form drops both too**, because
+        `_func_name` also looks for a direct identifier, so naming them here
+        would make the short form index what the long form cannot -- a new
+        inconsistency rather than a fix. Declined in both, asserted as a
+        boundary, filed separately.
+        """
+        named = [c for c in node.children if c.is_named]
+        if not named:
+            return None
+        head = named[0]
+        if head.type == "where_expression":
+            inner = [c for c in head.children if c.is_named]
+            if not inner:
+                return None
+            head = inner[0]
+        if head.type != "call_expression":
+            return None
+        for child in head.children:
+            if child.type == "identifier":
+                return source[child.start_byte:child.end_byte]
+        return None
+
     def _walk(node, scope: str = "") -> None:
         name: Optional[str] = None
         kind: Optional[str] = None
 
-        if node.type in ("function_definition", "short_function_definition"):
+        if node.type == "function_definition":
             name = _func_name(node)
             kind = "function"
+        elif node.type == "assignment":
+            # The short form (#738). `_short_function_name` returns None for
+            # every assignment that is not one, and `kind` stays None so the
+            # node falls through to ordinary recursion.
+            name = _short_function_name(node)
+            kind = "function" if name else None
         elif node.type == "macro_definition":
             name = _direct_name(node)
             kind = "function"
-        elif node.type in ("struct_definition", "mutable_struct_definition"):
+        elif node.type == "struct_definition":
+            # ⚠ `mutable_struct_definition` was the third dead literal in this
+            # tuple and is REMOVED, not fixed: the grammar has no such node kind
+            # and spells `mutable struct X` as an ordinary `struct_definition`,
+            # which this branch already matched -- so unlike #737 and #738 it
+            # cost nothing and hid nothing. It is gone because a reader who
+            # checks the grammar after those two finds a third literal matching
+            # nothing and cannot tell which kind it is.
+            # `test_a_mutable_struct_still_extracts` proves the removal is safe.
             name = _struct_name(node)
             kind = "type"
         elif node.type == "abstract_definition":
@@ -9975,7 +10038,20 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         "modifier_definition": "function",
         "struct_declaration": "type",
         "enum_declaration": "type",
-        "error_definition": "type",
+        # ⚠⚠ **`error_declaration`, NOT `error_definition` (#737).** This entry
+        # read `error_definition` for its whole life and the Solidity grammar
+        # has no such node kind, so the literal matched nothing, every custom
+        # error was silently unextractable, and no test anywhere failed --
+        # #722's shape (`HASKELL_SPEC` said `type_synon`, the grammar spells
+        # `type_synomym`) in a second language. Verified against the compiled
+        # grammar's own symbol table, not inferred from the node name, and
+        # `test_the_grammar_spells_error_declaration_not_error_definition`
+        # asserts both halves so a grammar that later adds the other spelling
+        # forces a re-derivation instead of a quiet divergence.
+        "error_declaration": "type",
+        # #736. A constructor is callable, so `function` follows this file's own
+        # convention for functions and modifiers.
+        "constructor_definition": "function",
     }
 
     def _walk(node, scope: str = "") -> None:
@@ -10003,6 +10079,16 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         if node.type in _MEMBER_TYPES:
             name = _first_identifier(node)
+            # ⚠⚠ **A constructor has NO identifier to borrow (#736), so listing
+            # the node type above is NOT sufficient** -- `_first_identifier`
+            # returns None and the member is dropped in silence, which is the
+            # trap: the map entry makes the fix look complete. The name is BUILT
+            # here, the way C# operators, conversions and indexers were in #714
+            # (`operator +`, `explicit operator string`, `this[]`).
+            # `test_the_constructor_has_no_identifier_in_the_grammar` pins the
+            # premise, so if the grammar ever names one we prefer its name.
+            if name is None and node.type == "constructor_definition":
+                name = "constructor"
             if name:
                 kind = _MEMBER_TYPES[node.type]
                 qualified = f"{scope}.{name}" if scope else name
