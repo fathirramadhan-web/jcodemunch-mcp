@@ -764,27 +764,39 @@ def test_the_ghost_check_fires_on_a_planted_typo():
 def test_a_recorded_inline_ghost_is_still_a_ghost():
     """An entry must FAIL once its ghost is fixed, or it becomes a false record.
 
-    ⚠⚠ **`_INLINE_GHOSTS_FOUND` had NO READER for its whole life** -- grepped
-    while clearing it: one definition, one docstring mention, zero assertions.
-    So the two entries it carried could have outlived their defects and nothing
-    would have objected, which is the "a field written by nobody's reader is a
-    defect with no symptom" lesson (#561/#562) inside the instrument built to
-    find exactly that class. `_CONFIRMED_GAPS` has had
-    `test_a_confirmed_gap_is_in_the_inventory` since #724; this is its sibling
-    and should have arrived with it.
+    ⚠⚠ **`_INLINE_GHOSTS_FOUND` had NO READER for its whole life** -- one
+    definition, one docstring mention, zero assertions -- so its entries could
+    have outlived their defects and nothing would have objected. That is
+    #561/#562's lesson inside the instrument #724 built to find that class.
+    `_CONFIRMED_GAPS` has had `test_a_confirmed_gap_is_in_the_inventory` since
+    #724; this is its missing sibling.
 
-    ⚠ **It is VACUOUS today and that is stated rather than hidden**: the table
-    is empty because both recorded ghosts were fixed in the same change that
-    added this gate. It arms itself the moment an entry is added, which is the
-    point -- the alternative is adding the gate later, i.e. never.
+    ⚠⚠ **The first version of THIS test could not fail on the case it was
+    written for, and review proved it by planting both deleted entries on the
+    fixed tree and watching it pass.** It asserted the node type was absent from
+    the GRAMMAR -- but a ghost is fixed by changing the EXTRACTOR literal, and
+    the grammar never gains the typo, so the gate fired only in a case that
+    cannot happen. Second guard in one session with that defect
+    (`[[a-ratchet-can-pass-against-the-defect-it-names]]`).
+
+    The property is about the EXTRACTOR, so it reads
+    `_harvested_node_types`: a recorded ghost must still be a literal the parse
+    function matches AND still be absent from the grammar. When either half
+    stops holding the ghost is gone and the entry is a false record.
     """
     for language, (node_type, why) in _INLINE_GHOSTS_FOUND.items():
         kinds = _grammar_kinds(language)
         assert kinds is not None, f"{language} has no grammar in this pack"
+
+        harvested = _harvested_node_types(language, kinds)
+        assert node_type in harvested, (
+            f"{language}: `{node_type}` is no longer a literal "
+            f"_parse_{language}_symbols matches, so the ghost is FIXED ({why}). "
+            f"DELETE this _INLINE_GHOSTS_FOUND entry -- do not adjust it."
+        )
         assert node_type not in kinds, (
-            f"{language}: the grammar now emits `{node_type}`, so this "
-            f"_INLINE_GHOSTS_FOUND entry is stale. If the ghost is fixed "
-            f"({why}), DELETE the entry -- do not adjust it to match."
+            f"{language}: the grammar now emits `{node_type}`, so it is not a "
+            f"ghost any more ({why}). DELETE the entry."
         )
 
 
@@ -797,8 +809,8 @@ def test_the_inline_ghost_table_is_empty_and_that_is_deliberate():
     """
     assert _INLINE_GHOSTS_FOUND == {}, (
         f"_INLINE_GHOSTS_FOUND now carries {sorted(_INLINE_GHOSTS_FOUND)}. That "
-        f"is fine -- it means a new ghost was found -- but "
-        f"test_a_recorded_inline_ghost_is_still_a_ghost is no longer vacuous, so "
-        f"update this test's docstring and say in the CHANGELOG which ghost and "
-        f"which issue tracks it."
+        f"is fine -- it means a new ghost was found -- and it means "
+        f"test_a_recorded_inline_ghost_is_still_a_ghost is no longer vacuous. "
+        f"CHANGE THIS ASSERTION (a docstring edit leaves it red) and say in the "
+        f"CHANGELOG which ghost and which issue tracks it."
     )

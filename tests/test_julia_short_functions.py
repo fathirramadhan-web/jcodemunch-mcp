@@ -49,7 +49,19 @@ grammar has no such node and spells `mutable struct X` as an ordinary
 `struct_definition`, which IS matched, so the form extracts correctly and the
 dead alternative costs nothing. Recorded because a reader who checks the grammar
 will find it and wonder; it is cosmetic, not a defect, and is deliberately not
-filed as one.
+filed as one. (3) **Julia TYPES are not indexed unless the name is bare** --
+`struct Box{T}`, `struct S <: Super` and `abstract type B <: A` all yield
+nothing, because `_struct_name` reads `type_head > identifier` while the grammar
+nests the name under `parametrized_type_expression` or the `<:`
+`binary_expression`. Seven of nine shapes, and the two that work are the least
+common. Filed as #749, found while checking that the dead literal in (2) lost
+nothing on removal — which it did not.
+
+⚠⚠ **(1), (3) and #738 itself are ONE shape three times: the node type is right
+and matched, and the name helper looks at the wrong DEPTH.** That is why #738's
+fix is `_callable_name`, a single resolver asked by both function forms, rather
+than a fourth bespoke helper — and why #749 argues for the same treatment of
+type heads instead of a fifth.
 """
 
 import pytest
@@ -279,6 +291,66 @@ def test_the_unnameable_short_forms_are_declined_not_mis_named(source, label):
         f"{label} now yields a function; if that is intended, the LONG form "
         f"must gain it in the same change or the two disagree"
     )
+
+
+@pytest.mark.parametrize(
+    "source,name",
+    [
+        ("struct Box{T} end", "Box"),
+        ("struct S <: Super end", "S"),
+        ("struct Q{T} <: Sup{T} end", "Q"),
+        ("mutable struct M{T} end", "M"),
+        ("abstract type B <: A end", "B"),
+        ("abstract type C{T} <: A end", "C"),
+        ("primitive type Bits 8 end", "Bits"),
+    ],
+    ids=["parametric", "subtyped", "both", "mutable parametric",
+         "abstract subtyped", "abstract parametric", "primitive"],
+)
+def test_a_parametric_or_subtyped_type_head_is_a_known_gap(source, name):
+    """⚠⚠ #749, found in review of this batch and deliberately NOT fixed here.
+
+    `_struct_name` reads `type_head > identifier`, which is only the bare form.
+    The grammar nests the name as soon as the head is parametric or subtyped --
+    `type_head > parametrized_type_expression > identifier`, or
+    `type_head > binary_expression > ...` for `<:` -- so seven of nine type
+    shapes yield nothing, and the two that work are the least common in real
+    Julia. `abstract_definition` shares the helper and the gap; `primitive type`
+    is unnamed in the extractor entirely and is julia's one remaining row in
+    #724's inventory.
+
+    **The third instance of one shape in this function**, after short-form
+    functions (#738, fixed here) and macros (#748): the node type is right and
+    matched, and the NAME HELPER LOOKS AT THE WRONG DEPTH. That is why #738's
+    fix is `_callable_name`, one shared resolver, rather than a fourth bespoke
+    helper -- and why #749 argues for the same treatment of type heads instead
+    of a fifth.
+
+    ⚠ The sources are single-line because an empty Julia type body is valid,
+    which keeps newline escapes out of a parametrize list. An earlier draft used
+    `\\n` and the escapes were processed twice on the way into the file, leaving
+    an unterminated string literal that failed at COLLECTION -- the documented
+    hazard, and the reason code with escapes goes through an editor and an
+    `ast.parse`, never a heredoc.
+
+    This asserts the gap so the record cannot outlive it: when #749 is fixed
+    these fail and name the line to delete.
+    """
+    symbols = parse_file(source, "t.jl", "julia")
+
+    assert not [s for s in symbols if s.name == name], (
+        f"{name} now extracts, so #749 is fixed -- DELETE this test rather than "
+        f"adjusting it, and remove the note from the module docstring"
+    )
+
+
+def test_the_bare_type_head_control_still_extracts():
+    """Non-vacuity for the seven above: the helper is not simply broken.
+
+    If `_struct_name` returned None for everything, every absence assertion in
+    the parametrized test would pass while saying nothing about the type head.
+    """
+    assert [(s.name, s.kind) for s in parse_file("struct P end", "t.jl", "julia")] == [("P", "type")]
 
 
 def test_a_mutable_struct_still_extracts():

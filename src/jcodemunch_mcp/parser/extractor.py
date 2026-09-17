@@ -7349,17 +7349,66 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     source = ByteSlicedSource(source_bytes)
     symbols: list[Symbol] = []
 
+    #: Nodes Julia wraps a callable head in without changing what it names:
+    #: a `where` clause and a declared return type.
+    _NAME_WRAPPERS = frozenset({"where_expression", "typed_expression"})
+
+    def _callable_name(node) -> Optional[str]:
+        """The declared name of a call-shaped head, through any wrapping.
+
+        ⚠⚠ **ONE resolver, asked by BOTH the long and the short form, and the
+        first version of #738 put the `where` unwrap in the short form only.**
+        That made `f(x::T) where T = x` extract while
+        `function f(x::T) where T ... end` still yielded nothing -- precisely the
+        short-vs-long inconsistency #738's own note invokes to decline
+        `Base.length(x) = 1`, created in the commit that invoked it. Found in
+        review. The grammar puts `where_expression` in the same position for
+        both (`signature > where_expression > call_expression` and
+        `assignment > where_expression > call_expression`), so the fix belongs
+        one layer down -- which also repaired the long form for free, a gap that
+        predates #738 entirely.
+
+        ⚠ The loop is a LOOP because `where` nests: `f(x::T) where T where S`
+        is `where_expression > where_expression > call_expression`, and a
+        one-level unwrap silently indexes nothing. Bounded, because an unbounded
+        walk over a wrapper set is a hang waiting for a pathological input.
+
+        ⚠ `typed_expression` is here for `f(x)::Int = x`, a declared return
+        type. It does NOT admit `x::Int = 5`: that unwraps to an `identifier`,
+        which is not a `call_expression`, so it stays a typed variable.
+
+        ⚠ `operator` is accepted beside `identifier` because `+(a::P, b::P) = 1`
+        defines an operator method and the grammar puts the operator token where
+        the identifier would be. A QUALIFIED operator (`Base.:+`) still declines,
+        like every other qualified form, because its callee is a
+        `field_expression` -- consistent with the long form, which cannot name
+        those either.
+        """
+        depth = 0
+        while node is not None and node.type in _NAME_WRAPPERS:
+            if depth >= 8:
+                return None
+            named = [c for c in node.children if c.is_named]
+            node = named[0] if named else None
+            depth += 1
+        if node is None or node.type != "call_expression":
+            return None
+        for child in node.children:
+            if child.type in ("identifier", "operator"):
+                return source[child.start_byte:child.end_byte]
+        return None
+
     def _func_name(node) -> Optional[str]:
-        """Extract name from function_definition via signature > call_expression > identifier."""
+        """Extract the name from a `function_definition` via its `signature`."""
         for child in node.children:
             if child.type == "signature":
-                for sub in child.children:
-                    if sub.type == "call_expression":
-                        for inner in sub.children:
-                            if inner.type == "identifier":
-                                return source[inner.start_byte:inner.end_byte]
-                    elif sub.type == "identifier":
-                        return source[sub.start_byte:sub.end_byte]
+                named = [c for c in child.children if c.is_named]
+                if not named:
+                    return None
+                head = named[0]
+                if head.type == "identifier":
+                    return source[head.start_byte:head.end_byte]
+                return _callable_name(head)
         return None
 
     def _struct_name(node) -> Optional[str]:
@@ -7387,47 +7436,27 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         extractor matched that literal for its whole life, it matched nothing,
         and nothing failed -- #722's shape, found only by #724's inventory. The
         spelling was UNESTABLISHED when the issue was filed; asked of the
-        compiled grammar over eleven shapes, a short form is an `assignment`
-        whose first named child is a `call_expression`.
+        compiled grammar, a short form is an `assignment` whose left side is a
+        call-shaped head.
 
         ⚠⚠ **The predicate is the SHAPE OF THE LEFT SIDE, and that is what keeps
         the blast radius equal to the defect.** An `assignment` is the most
         common statement in Julia, so matching the node type alone would index
         every variable in every Julia file as a function -- the widening #732
         took by accident in Kotlin and spent three review rounds undoing.
-        Measured, the left side discriminates exactly: `call_expression` yes;
+        Measured over 45 shapes in review, no ordinary assignment reaches this:
         `identifier` (`x = 1`, and `h = z -> z*2`), `index_expression`
-        (`a[i] = 1`), `field_expression` (`a.b = 1`) and `open_tuple`
-        (`a, b = 1, 2`) all no.
+        (`a[i] = 1`), `field_expression` (`a.b = 1`), `open_tuple`
+        (`a, b = 1, 2`), compound and broadcast assignment, `for` bindings,
+        keyword arguments and default parameters all decline.
 
-        ⚠ `where_expression` wraps the call in `k(x::T) where T = x`, so a
-        one-level check finds no `call_expression` and silently indexes nothing
-        for generic definitions -- ordinary in numerical code, and the near-miss
-        this unwraps.
-
-        ⚠ Returns None for a call with no plain identifier: `Base.length(x) = 1`
-        puts a `field_expression` there and `(m::Model)(x) = x` a
-        `parenthesized_expression`. **The LONG form drops both too**, because
-        `_func_name` also looks for a direct identifier, so naming them here
-        would make the short form index what the long form cannot -- a new
-        inconsistency rather than a fix. Declined in both, asserted as a
-        boundary, filed separately.
+        The name itself comes from `_callable_name`, which BOTH forms ask --
+        see its note for why that matters and what it declines.
         """
         named = [c for c in node.children if c.is_named]
         if not named:
             return None
-        head = named[0]
-        if head.type == "where_expression":
-            inner = [c for c in head.children if c.is_named]
-            if not inner:
-                return None
-            head = inner[0]
-        if head.type != "call_expression":
-            return None
-        for child in head.children:
-            if child.type == "identifier":
-                return source[child.start_byte:child.end_byte]
-        return None
+        return _callable_name(named[0])
 
     def _walk(node, scope: str = "") -> None:
         name: Optional[str] = None

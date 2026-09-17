@@ -20,7 +20,7 @@ is now asserted so a grammar that later adds the other spelling forces a
 re-derivation instead of a quiet divergence.
 
 ⚠⚠ **#738's spelling was UNESTABLISHED when the issue was filed, and
-establishing it was the fix.** Asked of the grammar over eleven shapes, a Julia
+establishing it was the fix.** Asked of the grammar, a Julia
 short form is an `assignment` whose first named child is a `call_expression`.
 **The predicate is the shape of the LEFT side, and that is what keeps the blast
 radius equal to the defect**: an `assignment` is the most common statement in
@@ -29,8 +29,36 @@ file as a function -- the widening #732 took by accident in Kotlin and spent
 three review rounds undoing. Measured, the left side discriminates exactly --
 `call_expression` yes; `identifier` (`x = 1`, and `h = z -> z*2`),
 `index_expression`, `field_expression` and `open_tuple` no. ⚠ A `where` clause
-wraps the call (`k(x::T) where T = x`), so a one-level check silently indexes
-nothing for generic definitions, which are ordinary in numerical code.
+wraps the call (`k(x::T) where T = x`) and NESTS, so a one-level check silently
+indexes nothing for generic definitions, which are ordinary in numerical code.
+
+⚠⚠ **Review found the `where` unwrap had gone into the short-form helper
+ALONE, so `function f(x::T) where T ... end` still yielded nothing while the
+short form with the same clause worked** -- exactly the short-vs-long
+inconsistency this entry invokes below to decline the qualified forms, created
+in the commit that invoked it. The grammar puts `where_expression` in the same
+position for both, so one shared resolver now answers for both, and **it
+repaired the long form for free** -- a gap that predates #738 entirely. Review
+also named three shapes the first draft called exactly discriminated and did
+not handle: a declared return type (`f(x)::Int = x`), a nested `where`, and an
+operator method (`+(a::P, b::P) = 1`). All three extract now; the full left-side
+table is:
+
+| source | left side | is a function? |
+|---|---|---|
+| `f(x) = x + 1` | `call_expression` | yes |
+| `k(x::T) where T = x` | `where_expression` wrapping one | yes |
+| `k(x::T) where T where S = x` | `where_expression` nested twice | yes |
+| `f(x)::Int = x` | `typed_expression` wrapping one | yes |
+| `+(a::P, b::P) = 1` | `call_expression`, callee an `operator` | yes |
+| `x = 1` | `identifier` | no |
+| `h = z -> z*2` | `identifier` | no |
+| `x::Int = 5` | `typed_expression` wrapping an `identifier` | no |
+| `a[i] = 1` | `index_expression` | no |
+| `a.b = 1` | `field_expression` | no |
+| `a, b = 1, 2` | `open_tuple` | no |
+| `Base.length(x) = 1` | `call_expression`, callee a `field_expression` | declined |
+| `(m::Model)(x) = x` | `call_expression`, callee parenthesized | declined |
 
 ⚠⚠ **#736 is an omission that a map entry alone does NOT fix.** The grammar
 gives a Solidity constructor no identifier child -- its named children are
@@ -59,7 +87,17 @@ missing sibling of `test_a_confirmed_gap_is_in_the_inventory`, and
 `test_the_inline_ghost_table_is_empty_and_that_is_deliberate` pins the fact that
 the new gate is vacuous today so it cannot sit unnoticed for a second time.
 
-⚠ Out of scope and recorded rather than left silent. **A Julia MACRO yields no
+⚠ Out of scope and recorded rather than left silent, and review added a THIRD:
+**Julia types are not indexed unless the name is bare** (#749) -- `struct
+Box{T}`, `struct S <: Super` and `abstract type B <: A` all yield nothing,
+because `_struct_name` reads `type_head > identifier` while the grammar nests
+the name under `parametrized_type_expression` or the `<:` `binary_expression`.
+Seven of nine type shapes, and the two that work are the least common in real
+Julia. ⚠⚠ **That, the macro gap and #738 itself are ONE shape three times: the
+node type is right and matched, and the name helper looks at the wrong DEPTH.**
+It is why this change's fix is a single shared resolver rather than a fourth
+bespoke helper, and why #749 argues for the same treatment of type heads instead
+of a fifth. **A Julia MACRO yields no
 symbol** -- found while building the fixture, filed separately: not a ghost,
 because `macro_definition` is in the grammar and is matched, but `_direct_name`
 takes the first direct identifier child while a macro's name sits one level

@@ -72,6 +72,37 @@ interface IVault {
     error NotAllowed();
     function deposit(uint256 n) external;
 }
+
+// ⚠ The shapes `test_the_constructor_knows_its_owner` and
+// `test_no_declaration_is_emitted_twice` ARGUE for, which the first version of
+// this fixture did not contain -- it had exactly one constructor, so neither
+// test could fail on the collision it named
+// ([[a-fixture-that-cannot-express-the-reported-shape-cannot-fail-on-it]]).
+// Found in review.
+error TopLevelErr(bytes32 what);
+
+library Math {
+    error DivByZero();
+
+    function half(uint256 n) internal pure returns (uint256) {
+        return n / 2;
+    }
+}
+
+abstract contract Base {
+    constructor(uint256 a) {}
+}
+
+contract Derived is Base {
+    constructor(uint256 a) Base(a) {}
+}
+
+contract Sibling {
+    constructor() {}
+
+    fallback() external {}
+    receive() external payable {}
+}
 """
 
 
@@ -229,6 +260,62 @@ def test_the_constructor_is_a_method_shaped_kind(parsed):
 # ---------------------------------------------------------------------------
 # Neither channel may fire twice
 # ---------------------------------------------------------------------------
+
+def test_a_file_scope_error_is_indexed(parsed):
+    """#737's fix must reach an error declared OUTSIDE any contract.
+
+    ⚠ Asserted by nothing in the first version of this file. `_walk` recurses
+    from the root, so a file-scope `error` reaches `_MEMBER_TYPES` with an empty
+    scope -- a fix keyed on the contract body would pass every other error test
+    here and drop this one.
+    """
+    top = _named(parsed, "TopLevelErr")
+
+    assert top, sorted(s.name for s in parsed)
+    assert top[0].qualified_name == "TopLevelErr", top[0].qualified_name
+
+
+def test_an_error_in_a_library_is_indexed(parsed):
+    """A `library` is a third container spelling beside contract and interface."""
+    assert _named(parsed, "DivByZero"), sorted(s.name for s in parsed)
+
+
+@pytest.mark.parametrize("owner", ["Vault", "Base", "Derived", "Sibling"])
+def test_every_constructor_is_owned_by_its_own_contract(parsed, owner):
+    """⚠⚠ THE case the owner test argues for, now actually in the fixture.
+
+    Four constructors in one file -- a contract, an abstract contract, a derived
+    contract calling `Base(a)`, and one with no parameters. An unqualified name
+    would collapse all four, and nothing in the first fixture could have noticed
+    because it held exactly one.
+    """
+    ctors = [s for s in parsed if s.name == "constructor" and s.qualified_name == f"{owner}.constructor"]
+
+    assert len(ctors) == 1, [s.qualified_name for s in parsed if s.name == "constructor"]
+
+
+def test_every_constructor_has_a_distinct_id(parsed):
+    """Ids, not just qualified names -- a collision here would silently merge
+    two members in the index even with the names right."""
+    ids = [s.id for s in parsed if s.name == "constructor"]
+
+    assert len(ids) == 4, ids
+    assert len(set(ids)) == len(ids), ids
+
+
+def test_fallback_and_receive_stay_absent(parsed):
+    """The boundary, recorded rather than discovered.
+
+    `fallback_receive_definition` is still in #724's inventory as an unnamed
+    form, so `fallback()` and `receive()` yield nothing. Asserting it keeps the
+    constructor fix from being read as covering every nameless member, and this
+    test fails when that gap closes.
+    """
+    assert not [s for s in parsed if s.name in ("fallback", "receive")], (
+        "a nameless Solidity member other than the constructor now extracts -- "
+        "if that is intended, remove this test and the inventory row together"
+    )
+
 
 def test_no_declaration_is_emitted_twice(parsed):
     """Keyed on (name, line): two same-named members in different contracts are
