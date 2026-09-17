@@ -327,44 +327,95 @@ def test_a_known_gap_is_still_a_gap():
         )
 
 
-def test_every_declared_field_pattern_actually_yields_a_field():
-    """`field_patterns` must be READ, which is the whole difference from #725.
+#: Every spec channel whose members are extracted by their OWN dispatcher, with
+#: the kind it must produce and one sample per declaring language.
+#:
+#: ⚠⚠ ONE table, not one test per channel: `variable_patterns` (#741/#742) is
+#: the second entry, and writing it as a copy of the field test would put the
+#: #725 readership claim in two places that can drift. A channel added without
+#: a row here fails `test_every_extraction_channel_is_covered` below.
+_EXTRACTION_CHANNELS = {
+    "field_patterns": (
+        "field",
+        {"java": ("A.java", "class A {\n  private int probe;\n}\n")},
+    ),
+    "variable_patterns": (
+        "variable",
+        {
+            "javascript": ("a.js", "let probe = 1;\n"),
+            "typescript": ("a.ts", "let probe = 1;\n"),
+            "tsx": ("a.tsx", "let probe = 1;\n"),
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("channel", sorted(_EXTRACTION_CHANNELS))
+def test_every_declared_extraction_channel_actually_yields_its_kind(channel):
+    """A channel must be READ, which is the whole difference from #725.
 
     ⚠⚠ `type_patterns` and `return_type_fields` are declared by 19 and 14 of the
     79 specs respectively and read by NOTHING -- #725 -- and #735 added a third
-    node-type list beside them. A list that no channel consults is indistinguishable from the defect
-    it was added to fix ("a parameter that is present and does nothing", 08-19),
-    and the only thing separating the new field from the two dead ones is that
-    something runs it. This asserts that, through the product, per language: a
-    spec that declares the list must produce at least one `field` from the node
-    type it names.
+    node-type list beside them, #741 a fourth. A list no channel consults is
+    indistinguishable from the defect it was added to fix ("a parameter that is
+    present and does nothing", 08-19), and the only thing separating a new
+    field from the two dead ones is that something runs it. This asserts that,
+    through the product, per language: a spec declaring the list must produce
+    at least one symbol of the channel's kind from the node type it names.
 
-    ⚠ Keyed on the SPEC rather than on a hardcoded language list, so the second
-    member (#731's Go `var_spec` is the same shape) inherits the check on
-    arrival instead of joining unwatched.
+    ⚠ Keyed on the SPEC rather than a hardcoded language list, so the next
+    member (#731's Go package-level `var` is the same shape) inherits the check
+    on arrival instead of joining unwatched.
     """
-    samples = {
-        "java": ("A.java", "class A {\n  private int probe;\n}\n"),
-    }
+    kind, samples = _EXTRACTION_CHANNELS[channel]
 
     declaring = {
         name: spec
         for name, spec in LANGUAGE_REGISTRY.items()
-        if getattr(spec, "field_patterns", None)
+        if getattr(spec, channel, None)
     }
-    assert declaring, "no spec declares field_patterns; delete the field or the channel"
+    assert declaring, f"no spec declares {channel}; delete the field or the channel"
 
     for language, spec in sorted(declaring.items()):
         sample = samples.get(language)
         assert sample is not None, (
-            f"{language} declares field_patterns={spec.field_patterns} with no "
+            f"{language} declares {channel}={getattr(spec, channel)} with no "
             f"sample here, so nothing proves the channel runs for it. Add three "
             f"lines rather than trusting the declaration."
         )
         filename, source = sample
         kinds = {s.kind for s in parse_file(source, filename, language)}
-        assert "field" in kinds, (
-            f"{language} declares field_patterns={spec.field_patterns} and its "
-            f"sample yields no field -- the list is write-only, which is #725 "
-            f"in a third costume. Got kinds: {sorted(kinds)}"
+        assert kind in kinds, (
+            f"{language} declares {channel}={getattr(spec, channel)} and its "
+            f"sample yields no {kind} -- the list is write-only, which is #725 "
+            f"in another costume. Got kinds: {sorted(kinds)}"
         )
+
+
+def test_every_extraction_channel_is_covered():
+    """A fifth channel cannot join without a row in the table above.
+
+    ⚠⚠ The readership property is only as wide as the table, so the table is
+    derived from the dataclass rather than trusted: a `*_patterns` field that
+    `_EXTRACTION_CHANNELS` does not name is exactly the write-only list the
+    test above exists to refuse, and it would otherwise be unwatched in the
+    silence that #725 describes.
+
+    ⚠ `constant_patterns` is excluded BY NAME and has its own, older gate --
+    `tests/test_constant_extraction_guard.py`, one sample per declaring
+    language with a named exemption list (#428).
+    """
+    import dataclasses
+
+    from jcodemunch_mcp.parser.languages import LanguageSpec
+
+    channels = {
+        f.name
+        for f in dataclasses.fields(LanguageSpec)
+        if f.name.endswith("_patterns")
+    } - {"constant_patterns", "type_patterns"}
+    assert channels == set(_EXTRACTION_CHANNELS), (
+        f"declared channels {sorted(channels)} vs covered "
+        f"{sorted(_EXTRACTION_CHANNELS)}; a channel with no row here is "
+        f"unwatched (#725)"
+    )
