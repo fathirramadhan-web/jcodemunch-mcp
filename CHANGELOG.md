@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - the grammar inventory's recognised set reads all four extraction channels (#757)
+
+`tests/test_grammar_spelled_forms.py` freezes, per language, the
+declaration-shaped node types a grammar emits that the language's spec does not
+recognise. `_checkable_languages` derived that recognised set from
+`symbol_node_types` alone, and a spec has four extraction channels --
+`symbol_node_types`, `constant_patterns`, `field_patterns` (#735) and
+`variable_patterns` (#741). Three of them were invisible to the file whose job
+is naming what is unindexed.
+
+⚠⚠ **The tell is the DIRECTION: closing a gap could make the count go UP.**
+#735 indexed every Java field through `field_patterns`, and
+`java.field_declaration` stayed listed as unrecognised. #743 moved
+`php.property_declaration` out of `symbol_node_types` into that same channel and
+the inventory grew from 272 to 273 **in the change that fixed it**. So the
+artifact a reader consults to pick the next gap was reporting indexed forms as
+gaps, and a fix could make its own evidence worse.
+
+⚠⚠ **"Declared in a channel" is not "extracted by it", which is why this was
+correctly left alone twice and why the union ships with a second half.**
+`java.field_declaration` sat in `constant_patterns` for years while every
+ordinary field was dropped, because that channel required `static final`. A set
+unioned by DECLARATION alone would have called the form recognised and hidden
+the widest gap #724 found -- re-installing the defect #735 exists to fix,
+silently, in the instrument that measures it.
+
+So every form the widening suppresses a row for owes a sample in
+`tests/test_inventory_reads_every_channel.py`, and each sample proves the
+channel extracts that form **by deletion**: the node type is removed from every
+channel, the file is re-parsed, and the symbol must stop coming out. Appearance
+alone cannot carry the claim -- a sample has to be legal source, so it carries a
+container the spec also declares, and a container can answer "the kind appears"
+by itself. That was the hollow row review found in #745's guard, one channel
+over. A form that stops extracting now returns to the inventory instead of
+hiding in it.
+
+⚠ Inventory **272 -> 264**: eight rows leave, across go, java, javascript, php,
+rust, tsx and typescript. `docs/harness/ARCHAEOLOGY.md` carries the new count.
+`variable_patterns` is read through `getattr`, so this does not depend on the
+order #741's branch and this one merge in.
+
 ### Fixed - every Java field is a symbol, not only the `static final` ones (#735)
 
 A Java class indexed with its methods and none of its state. `private int
