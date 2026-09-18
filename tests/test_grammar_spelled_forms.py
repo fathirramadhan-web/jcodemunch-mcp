@@ -672,9 +672,22 @@ def test_every_scalar_field_has_a_pinned_scalar_annotation():
     )
 
 
-#: Where a spec is read from. Scoped, and the scope is the claim: a
-#: `LanguageSpec` is consumed by the parser and nowhere else, so this is where a
-#: dynamic read would hide one of its fields.
+#: Where spec FIELDS are read. Scoped, and the scope is narrower than the claim
+#: it is tempting to make: four modules outside the parser reference
+#: `LanguageSpec` or `LANGUAGE_REGISTRY` (`config.py`, `server.py`,
+#: `cli/hooks/_common.py`, `tools/search_ast.py`), so "the parser is the only
+#: consumer" would be false. What is true today is that every read of a spec's
+#: FIELDS lives in `parser/extractor.py` and `parser/imports.py`, both inside
+#: this scope.
+#:
+#: ⚠ A computed read over a spec field in one of those four modules escapes this
+#: guard. Widening it to them fails on three unrelated `server.py` sites
+#: (`getattr(logging, level_name, ...)` and friends), so the honest closure is to
+#: key on the OBJECT rather than the directory -- flag
+#: `getattr(<name bound to a spec>, <computed>)` anywhere in `src/`. Not done:
+#: it needs binding analysis to be worth more than the scope, and the two
+#: modules that actually read fields are covered. Recorded so the next reader
+#: knows the limit rather than inferring a stronger claim from the constant.
 _SPEC_READING_PACKAGE = "src/jcodemunch_mcp/parser"
 
 
