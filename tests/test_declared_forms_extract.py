@@ -343,7 +343,7 @@ def _all_languages_enabled(monkeypatch):
     monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
 
 
-def expected_pairs(pairs, kind):
+def _expected_pairs(pairs, kind):
     """The pairs of one kind, for a failure message that names them."""
     return sorted(name for name, k in pairs if k == kind)
 
@@ -471,7 +471,7 @@ def test_a_declared_node_type_extracts_its_kind(language, node_type, kind):
     contributed = with_form - _pairs_without_the_form(language, node_type)
     assert any(k == expected for _n, k in contributed), (
         f"{language}.{node_type} is declared {kind!r} and its sample still "
-        f"yields {sorted(expected_pairs(with_form, expected))} with the entry "
+        f"yields {sorted(_expected_pairs(with_form, expected))} with the entry "
         f"REMOVED from the spec, so this row proves nothing about the form it "
         f"names -- the container is supplying the kind. Narrow the sample, or "
         f"name the form that is really under test."
