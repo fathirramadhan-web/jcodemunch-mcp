@@ -637,7 +637,14 @@ PHP_SPEC = LanguageSpec(
         "interface_declaration": "type",
         "trait_declaration": "type",
         "enum_declaration": "type",
-        "property_declaration": "property",
+        # ⚠⚠ `property_declaration` is NOT here, and its absence is the fix for
+        # #743 rather than an omission. It sat in this map with
+        # `name_fields["property_declaration"] = "name"` beside it and yielded
+        # nothing for the whole life of the spec, because the grammar sets no
+        # `name` field on that node -- the name is two levels down at
+        # `property_element > variable_name > name`. It reaches the index
+        # through `field_patterns` below, which is also the only channel that
+        # can express `public $a = 1, $b = 2;` (one node, two declarations).
     },
     name_fields={
         "function_definition": "name",
@@ -646,7 +653,6 @@ PHP_SPEC = LanguageSpec(
         "interface_declaration": "name",
         "trait_declaration": "name",
         "enum_declaration": "name",
-        "property_declaration": "name",
     },
     param_fields={
         "function_definition": "parameters",
@@ -658,9 +664,14 @@ PHP_SPEC = LanguageSpec(
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="attribute",  # PHP 8 #[Attribute] syntax
-    container_node_types=["class_declaration", "trait_declaration", "interface_declaration"],
+    container_node_types=["class_declaration", "trait_declaration", "interface_declaration", "enum_declaration"],
     constant_patterns=["const_declaration"],
     type_patterns=["interface_declaration", "trait_declaration", "enum_declaration"],
+    # #743. One `property_declaration` binds N names and `_extract_symbol`
+    # returns one `Optional[Symbol]` per node, so `symbol_node_types`
+    # structurally cannot express the form -- #735's reason for this channel,
+    # inherited rather than re-derived.
+    field_patterns=["property_declaration"],
 )
 
 

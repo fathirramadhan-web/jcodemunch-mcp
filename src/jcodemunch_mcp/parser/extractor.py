@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # same nodes to a channel that could not accept them: disjoint, but no longer
 # exhaustive. Measured before the fix: `MAX_SIZE`, `INNER_CONST` and
 # `BAR_CONST` were emitted by neither channel. Found in review.
-_CLASS_SCOPED_CONSTANT_LANGUAGES = frozenset({"java", "kotlin"})
+_CLASS_SCOPED_CONSTANT_LANGUAGES = frozenset({"java", "kotlin", "php"})
 
 #: Languages whose constants may be declared inside a FUNCTION body and are
 #: still worth indexing. Separate from the class-scoped set above because it
@@ -712,7 +712,12 @@ def _walk_tree(
         if parent_symbol is not None:
             for f in fields:
                 f.qualified_name = f"{parent_symbol.qualified_name}.{f.name}"
-                f.id = make_symbol_id(filename, f.qualified_name, "field")
+                # ⚠ `f.kind`, never the literal "field": the id must agree with
+                # the kind the symbol carries, and this channel emits `property`
+                # for PHP (#743). A hardcoded kind here would mint
+                # `C.prop#field` for a symbol whose kind says `property`, which
+                # is an id nothing can look up.
+                f.id = make_symbol_id(filename, f.qualified_name, f.kind)
                 f.parent = parent_symbol.id
         symbols.extend(fields)
 
@@ -1882,9 +1887,16 @@ def _constant_symbol(
 
 
 def _field_symbol(
-    name: str, decl_node, source_bytes: bytes, filename: str, language: str
+    name: str, decl_node, source_bytes: bytes, filename: str, language: str,
+    kind: str = "field",
 ) -> Symbol:
-    """One field symbol spanning its whole declaration.
+    """One member symbol spanning its whole declaration.
+
+    ⚠⚠ **`kind` is a parameter because the CHANNEL is not the kind.**
+    `field_patterns` answers "this declaration binds N names and is not a
+    symbol in its own right"; what those names ARE is the language's own word.
+    Java calls them fields and PHP calls them properties, and `property` is the
+    kind `PHP_SPEC` has declared since before #571 (#743).
 
     ⚠ The span is the DECLARATION, not the declarator, and that is deliberate:
     `private java.util.List<String> tags;` carries the type, which is the most
@@ -1900,11 +1912,11 @@ def _field_symbol(
     """
     sig = source_bytes[decl_node.start_byte:decl_node.end_byte].decode("utf-8", "replace").strip()
     return Symbol(
-        id=make_symbol_id(filename, name, "field"),
+        id=make_symbol_id(filename, name, kind),
         file=filename,
         name=name,
         qualified_name=name,
-        kind="field",
+        kind=kind,
         language=language,
         signature=sig[:200],
         line=decl_node.start_point[0] + 1,
@@ -1927,7 +1939,51 @@ def _extract_fields(
     """
     if node.type == "field_declaration" and language == "java":
         return _extract_java_fields(node, source_bytes, filename, language)
+    if node.type == "property_declaration" and language == "php":
+        return _extract_php_properties(node, source_bytes, filename, language)
     return []
+
+
+def _extract_php_properties(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Every PHP class property one declaration binds (#743).
+
+    ⚠⚠ **The name is TWO levels down and that is the whole defect.**
+    `PHP_SPEC` named this node type in `symbol_node_types` with
+    `name_fields["property_declaration"] = "name"`, and the grammar sets no
+    `name` field on it: the named children are the modifiers and one
+    `property_element` per bound name, each of which carries the `name` field.
+    A `name_fields` entry pointing at a field the grammar does not produce
+    resolves to nothing and the symbol is dropped in silence -- #712's shape
+    one indirection down, and the reason `property` sat in `KIND_ORDER` as a
+    declared-and-dead kind until Kotlin became its first live emitter (#732).
+
+    ⚠ **The `$` is not part of the name.** `variable_name` spells `$prop` and
+    its `name` child spells `prop`, which is what `$this->prop` writes and what
+    a reader searches for. Taking the outer node would index every PHP property
+    under a name nothing references.
+    """
+    found: list[Symbol] = []
+    for element in node.children:
+        if element.type != "property_element":
+            continue
+        variable = element.child_by_field_name("name")
+        if variable is None:
+            continue
+        # `variable_name` wraps the bare `name`; fall back to the wrapper's own
+        # text only if the grammar stops nesting it, minus the sigil.
+        name_node = next((c for c in variable.children if c.type == "name"), None)
+        if name_node is not None:
+            name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
+        else:
+            name = source_bytes[variable.start_byte:variable.end_byte].decode(
+                "utf-8", "replace"
+            ).lstrip("$")
+        found.append(
+            _field_symbol(name, node, source_bytes, filename, language, kind="property")
+        )
+    return found
 
 
 def _extract_go_constants(

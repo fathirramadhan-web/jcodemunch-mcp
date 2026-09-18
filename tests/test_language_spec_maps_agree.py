@@ -343,8 +343,16 @@ def test_every_declared_field_pattern_actually_yields_a_field():
     member (#731's Go `var_spec` is the same shape) inherits the check on
     arrival instead of joining unwatched.
     """
+    # ⚠⚠ The KIND is per LANGUAGE, not per channel, and #743 is why.
+    # `field_patterns` answers "this declaration binds N names and is not a
+    # symbol in its own right"; what those names ARE is the language's own
+    # word. Java calls them fields, PHP calls them properties, and PHP_SPEC has
+    # declared the `property` kind since before #571. A table keyed on the
+    # channel alone would have forced one of the two languages to lie about its
+    # own members to satisfy a test.
     samples = {
-        "java": ("A.java", "class A {\n  private int probe;\n}\n"),
+        "java": ("A.java", "class A {\n  private int probe;\n}\n", "field"),
+        "php": ("a.php", "<?php\nclass A { public $probe = 1; }\n", "property"),
     }
 
     declaring = {
@@ -361,10 +369,10 @@ def test_every_declared_field_pattern_actually_yields_a_field():
             f"sample here, so nothing proves the channel runs for it. Add three "
             f"lines rather than trusting the declaration."
         )
-        filename, source = sample
+        filename, source, expected = sample
         kinds = {s.kind for s in parse_file(source, filename, language)}
-        assert "field" in kinds, (
+        assert expected in kinds, (
             f"{language} declares field_patterns={spec.field_patterns} and its "
-            f"sample yields no field -- the list is write-only, which is #725 "
-            f"in a third costume. Got kinds: {sorted(kinds)}"
+            f"sample yields no {expected} -- the list is write-only, which is "
+            f"#725 in a third costume. Got kinds: {sorted(kinds)}"
         )
