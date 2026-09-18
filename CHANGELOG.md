@@ -40,6 +40,19 @@ by itself. That was the hollow row review found in #745's guard, one channel
 over. A form that stops extracting now returns to the inventory instead of
 hiding in it.
 
+⚠⚠ **The channel list is one gated roster, not a list two files transcribe.**
+Both readers import one tuple, and `LanguageSpec`'s field roster is pinned: a
+fifth field fails by name and forces one decision, channel or not-a-channel with
+the reason. The classification cannot be the lazy answer either -- a node-type
+LIST classified as a non-channel owes either "nothing reads it", which is
+SCANNED across `src/`, or a named non-extraction read, which is
+`container_node_types` alone and pinned to the file that reads it. That closes
+the recurrence one field over: `type_patterns` is declared by 19 specs and read
+by nothing (#725), so the day something wires it in it becomes a channel the
+recognised set has never heard of, and the only symptom would be this inventory
+quietly listing forms the product extracts. Ten planted defects, ten named
+guards red, each one PREDICTED before it was run.
+
 ⚠ Inventory **272 -> 264**: eight rows leave, across go, java, javascript, php,
 rust, tsx and typescript. `docs/harness/ARCHAEOLOGY.md` carries the new count.
 `variable_patterns` is read through `getattr`, so this does not depend on the

@@ -350,6 +350,186 @@ def test_no_spec_field_is_an_unclassified_channel():
     )
 
 
+#: Non-channel fields classified that way BECAUSE NOTHING READS THEM (#725),
+#: with the issue that measured it.
+#:
+#: ⚠⚠ **`type_patterns` is the field most likely to become a channel: 19 specs
+#: declare it and the extractor reads none of them.** The day something wires it
+#: in, it IS an extraction channel, the recognised set omits it, the inventory
+#: starts reporting extracted forms as gaps -- and the roster test stays green,
+#: because the name is classified. That is #757 reproduced one field over,
+#: inside the file that exists to prevent it. So the measurement quoted in
+#: `_NON_CHANNEL_SPEC_FIELDS` is asserted rather than transcribed.
+_UNREAD_NON_CHANNEL_FIELDS = {
+    "type_patterns": "#725: declared by 19 specs, read by nothing",
+    "return_type_fields": "#725: declared by 14 specs, read by nothing",
+}
+
+#: The one non-channel field that IS a node-type list and IS read -- for
+#: OWNERSHIP, not extraction: `parent_is_container` promotes a function to a
+#: method, it does not turn a node into a symbol.
+_OWNERSHIP_NON_CHANNEL_FIELD = "container_node_types"
+
+#: Where that read lives. Pinned so the exception cannot outlive its reason.
+_OWNERSHIP_READER = "src/jcodemunch_mcp/parser/extractor.py"
+
+
+def _spec_list_fields() -> set[str]:
+    """Fields of `LanguageSpec` that are lists of node types."""
+    return {
+        f.name
+        for f in dataclasses.fields(LanguageSpec)
+        if str(f.type).replace(" ", "") in ("list[str]", "List[str]")
+    }
+
+
+def _src_files():
+    root = pathlib.Path(__file__).resolve().parent.parent / "src"
+    return sorted(root.rglob("*.py"))
+
+
+def _reads_of(field_name: str) -> list[str]:
+    """Every file under `src/` that READS `spec.<field_name>`.
+
+    ⚠ Attribute access and `getattr` only. A spec CONSTRUCTS the field by
+    keyword (`type_patterns=[...]`) in `languages.py`, which is a declaration
+    and not a read -- counting that would make every field look consumed and
+    the scan would assert nothing.
+    """
+    attribute = "." + field_name
+    quoted = chr(34) + field_name + chr(34)
+    hits = []
+    for path in _src_files():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if attribute in text or ("getattr" in text and quoted in text):
+            hits.append(path.as_posix().split("/src/", 1)[-1])
+    return ["src/" + h for h in hits]
+
+
+def test_a_non_channel_list_field_is_unread_or_a_named_exception():
+    """⚠⚠ The lazy way to green the roster test is to classify a new channel as
+    a non-channel, and this is what refuses it.
+
+    A node-type LIST is the shape an extraction channel has. So a list field
+    sitting in `_NON_CHANNEL_SPEC_FIELDS` owes one of exactly two reasons:
+    nothing reads it (`_UNREAD_NON_CHANNEL_FIELDS`, scanned below), or it is
+    read for ownership rather than extraction (`container_node_types`, one
+    field, named). Anything else is an excuse, and the sibling file paid for
+    this already -- `_RESOLVED_BEFORE_NAME_FIELDS`' first version was an escape
+    hatch and review planted three bogus entries that stayed green.
+    """
+    excused = set(_UNREAD_NON_CHANNEL_FIELDS) | {_OWNERSHIP_NON_CHANNEL_FIELD}
+    unexcused = sorted((_spec_list_fields() & _NON_CHANNEL_SPEC_FIELDS) - excused)
+    assert not unexcused, (
+        f"{unexcused} are node-type LISTS classified as non-channels with no "
+        f"reason on record. A list field is channel-shaped: either nothing in "
+        f"src/ reads it (add it to _UNREAD_NON_CHANNEL_FIELDS, which is "
+        f"scanned) or it is read for something other than extraction (say "
+        f"what, as container_node_types does) -- or it is a channel and belongs "
+        f"in _EXTRACTION_CHANNELS with a sample per widened form (#757)."
+    )
+
+
+@pytest.mark.parametrize("field_name", sorted(_UNREAD_NON_CHANNEL_FIELDS))
+def test_a_field_classified_unread_is_still_unread(field_name):
+    """The measurement inside the gate, asserted instead of transcribed.
+
+    ⚠⚠ **This is the trip-wire for #757 recurring one field over.** When a fix
+    wires `type_patterns` into the extractor it becomes an extraction channel;
+    the recognised set will not know, and the only symptom is the inventory
+    quietly listing forms the product extracts. This fails on that commit and
+    names the decision.
+    """
+    readers = _reads_of(field_name)
+    assert not readers, (
+        f"{field_name} is classified a non-channel because nothing reads it "
+        f"({_UNREAD_NON_CHANNEL_FIELDS[field_name]}), and {readers} read it "
+        f"now. If it feeds extraction it is a CHANNEL: add it to "
+        f"_EXTRACTION_CHANNELS, and a sample per newly recognised form in "
+        f"tests/test_inventory_reads_every_channel.py. If it feeds something "
+        f"else, say which, the way container_node_types does (#757)."
+    )
+
+
+def test_the_ownership_exception_is_really_read_for_ownership():
+    """The other direction: an exception whose reason has evaporated.
+
+    ⚠ `container_node_types` is excused from the list-field rule because it IS
+    read -- for ownership. If that read disappears the field is unread and
+    belongs in `_UNREAD_NON_CHANNEL_FIELDS`; if it is read somewhere new, that
+    site needs looking at. Either way the excuse as written stops being true.
+    """
+    readers = _reads_of(_OWNERSHIP_NON_CHANNEL_FIELD)
+    assert _OWNERSHIP_READER in readers, (
+        f"{_OWNERSHIP_NON_CHANNEL_FIELD} is excused from the list-field rule "
+        f"because {_OWNERSHIP_READER} reads it for ownership, and that read is "
+        f"gone -- readers now {readers}. Re-classify it (#757)."
+    )
+
+
+def test_no_non_channel_entry_is_stale():
+    """A classification for a field that no longer exists.
+
+    ⚠ Harmless to the product and corrosive to the gate: it reads as a decision
+    someone made about a real field, so the next reader trusts the list is
+    complete. The sample table next door is gated in both directions for the
+    same reason.
+    """
+    stale = sorted(_NON_CHANNEL_SPEC_FIELDS - _spec_field_names())
+    assert not stale, (
+        f"{stale} are classified as non-channel fields of LanguageSpec and are "
+        f"not fields of it -- renamed or removed (#757)."
+    )
+
+
+def test_a_pending_channel_is_not_a_typo_of_an_existing_field():
+    """⚠⚠ The hole `_PENDING_CHANNELS` would otherwise keep open.
+
+    `test_every_extraction_channel_is_a_real_spec_field` SUBTRACTS the pending
+    set, and `test_a_pending_channel_is_still_pending` can only fire when a name
+    becomes a real field -- which a MISSPELLED name never does. So
+    `feild_patterns` would sit there green forever, contributing nothing, which
+    is the exact silence the pending block says it exists to end.
+
+    A near-miss of an existing field is what a typo looks like; a genuinely
+    pending channel is a name nothing resembles.
+    """
+    import difflib
+
+    fields = _spec_field_names()
+    near = {}
+    for pending in _PENDING_CHANNELS:
+        for existing in fields:
+            # ⚠ An EXACT match is not a typo, it is an arrival, and
+            # `test_a_pending_channel_is_still_pending` owns that case. Without
+            # this the two tests both fire on the same mutation and neither
+            # verdict means what it says -- found by planting the arrival.
+            if pending == existing:
+                continue
+            if difflib.SequenceMatcher(None, pending, existing).ratio() >= 0.85:
+                near.setdefault(pending, []).append(existing)
+    assert not near, (
+        f"{near} -- each pending channel is one small edit from a field that "
+        f"already exists, which is a typo, not an arrival. A typo'd channel is "
+        f"read as an absent field forever and nothing else would say so (#757)."
+    )
+
+
+def test_the_pending_set_is_exactly_what_review_saw():
+    """A pending entry is a REVIEWED exemption, not a place to put a name.
+
+    ⚠ Pinned by content, so adding one fails here and has to be argued for --
+    the `_KNOWN_GAPS` treatment. Removing the last one when #741 merges is the
+    expected direction, and this line is the reminder.
+    """
+    assert set(_PENDING_CHANNELS) == {"variable_patterns"}, (
+        f"_PENDING_CHANNELS is {sorted(_PENDING_CHANNELS)}; only "
+        f"variable_patterns (#741 / PR #753) has been reviewed as pending. A "
+        f"new entry needs the branch that adds the field named, and a `getattr` "
+        f"read is not evidence the field will ever exist (#757)."
+    )
+
+
 
 @functools.lru_cache(maxsize=1)
 def _checkable_languages():
