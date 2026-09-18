@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+### Fixed - the spec-map guard checked that a name COULD resolve, never that it did (#745)
+
+`tests/test_language_spec_maps_agree.py` (#712) asks whether a declared node
+type has a way to get its name: an entry in `name_fields`, or a branch in
+`_extract_name`. That is a question about the MAPS. A spec could declare a
+symbol, map it to a kind, give it a name field, produce nothing, and stay
+green — and one did, for the whole life of the PHP spec.
+
+⚠⚠ **The two questions differ by one indirection, and that is where #698,
+#712, #722, #732 and #743 all lived.** `php.name_fields["property_declaration"]`
+says `name`; the grammar sets no such field on that node, so
+`child_by_field_name("name")` returns `None` and no PHP class property has ever
+been indexed. Every assertion in the old guard passes on that.
+
+⚠⚠ **A static scan cannot close it.** The compiled grammar's symbol table
+enumerates node KINDS — that is #724's property A, and it reports clean across
+all 139 declared node types — but it cannot enumerate which FIELDS a grammar
+sets on a node, so the PHP case is invisible to it. Hence a behavioural check:
+`tests/test_declared_forms_extract.py` parses a sample per declared node type
+and asserts the declared kind comes out, the same form
+`test_every_declared_extraction_channel_actually_yields_its_kind` (#735) and
+`_CLASS_SCOPED_SAMPLES` (#732) take.
+
+**139 declared node types across 22 specs, and the first run found 12 failures
+in three classes.** Four were wrong SAMPLES of mine, two are new defects, and
+the rest were already tracked:
+
+- **#754, new**: a Swift `deinit` yields no symbol while the `init` beside it
+  extracts. The grammar gives `deinit_declaration` no identifier child at all —
+  its only named child is `function_body` — so there is no name to borrow. The
+  name must be BUILT, as #714 built `this[]` and #736 built `"constructor"`.
+- **#755, new**: a C++ and Arduino DATA member yields no symbol, while a member
+  function prototype in the same position does. The grammar spells both
+  `field_declaration` and the spec maps that node type to `function`, so
+  everything the function path declines has no channel to fall to. #735 in a
+  second language family, and `field_patterns` is the channel it needs.
+- **#743** (PHP properties) and **#722** (Haskell extracts nothing) were known
+  and are now pinned by a test that FAILS when either is fixed, so the record
+  cannot outlive the defect.
+
+⚠ **The samples are deliberately unavoidable.**
+`test_every_declared_node_type_has_a_sample` fails BY NAME for a declared form
+with no sample, so a spec cannot grow a form that nothing exercises — the
+alternative, iterating the samples, passes by DELETION.
+`test_the_two_lists_partition_every_declared_form` closes the other route: a
+form parked in the tracked-gap table stops being checked, so both halves are
+asserted and nothing can be in neither.
+
+⚠ **The one allowance is asserted in the strict direction.** Four forms exist
+only inside a container (a C++ member prototype, a bodiless Rust `fn`, a
+bodiless Scala `def`), where `_walk_tree` promotes `function` to `method`.
+Those rows require the PROMOTED kind rather than accepting either, so a form
+that started extracting under its declared kind fails and the entry is deleted;
+`test_the_container_promotion_is_real` pins that the promotion exists at all,
+and `test_every_promotion_entry_is_a_function_form` refuses an entry for any
+other declared kind.
+
+⚠ Tracked gaps are EXCLUDED from the parametrization rather than skipped inside
+it, and that is a Floor decision: seven `pytest.skip`s would take
+`ci.skips_windows` from 24 to 31 against a ceiling of 25, spending the suite's
+skip budget on bookkeeping — against the instrument the project reads first
+when a run looks green.
+
+⚠ Added to the fast tier (92 files), because it answers a question about the
+specs that a commit can break and costs 0.6 s.
+
 ### Fixed - every Java field is a symbol, not only the `static final` ones (#735)
 
 A Java class indexed with its methods and none of its state. `private int

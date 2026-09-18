@@ -24,6 +24,7 @@
   "tests/test_dispatch_resolution.py",
   "tests/test_docs_config_parity.py",
   "tests/test_file_io_encoding_guard.py",
+  "tests/test_declared_forms_extract.py",
   "tests/test_full_tier_coverage_core.py",
   "tests/test_groq_explainer.py",
   "tests/test_groq_voice.py",
