@@ -299,11 +299,15 @@ _UNREAD_NON_CHANNEL_FIELDS = {
     "type_patterns": "#725: declared by 19 specs, read by nothing",
     "return_type_fields": "#725: declared by 14 specs, read by nothing",
     # ⚠⚠ A THIRD, found by this scan rather than by reading: #725 named two,
-    # and `param_fields` is required POSITIONALLY, so all 79 specs fill it in
-    # and nothing in `src/` reads it. It was classified "signature detail" here
-    # on the strength of its name until the scan disagreed -- which is the
-    # argument for scanning a classification instead of stating one.
-    "param_fields": "declared by all 79 specs, read by nothing (found by this scan)",
+    # and `param_fields` is required POSITIONALLY, so every spec fills it in and
+    # nothing in `src/` reads it. It was classified "signature detail" here on
+    # the strength of its name until the scan disagreed -- which is the argument
+    # for scanning a classification instead of stating one.
+    # ⚠ No count, deliberately: the registry size (79), the number of
+    # `LanguageSpec(...)` literals (78) and the keys in the registry literal
+    # (77) are three different denominators, and a required argument needs none
+    # of them to make the point.
+    "param_fields": "required positionally, so every spec fills it; read by nothing (found by this scan)",
 }
 
 #: Read, but for something other than deciding what gets extracted: the purpose
@@ -339,17 +343,52 @@ _NON_CHANNEL_SPEC_FIELDS = frozenset(
     | _SCALAR_SPEC_FIELDS
 )
 
-#: The annotations that make a field a node-type collection.
+#: The SCALAR annotations. Everything else is treated as a node-type collection.
 #:
-#: ⚠ Spelled both ways because a dataclass annotation can reach
-#: `dataclasses.fields` as a string under `from __future__ import annotations`
-#: and as the object without it; comparing the normalised text covers both.
-_NODE_TYPE_COLLECTION_ANNOTATIONS = (
-    "list[str]",
-    "List[str]",
-    "dict[str,str]",
-    "Dict[str,str]",
+#: ⚠⚠ **INVERTED, and the direction is the whole point.** Listing the collection
+#: spellings makes the rule fail OPEN: `tuple[str, ...]`, `frozenset[str]`,
+#: `dict[str, list[str]]`, a bare `list` or `list[str] | None` all fall out of
+#: it, and a channel spelled any of those is classified away with no scan. That
+#: is the third version of one hole -- round two had no rule, round three keyed
+#: it to `list[str]`, and each fix was a narrower version of the same
+#: fail-open shape (#709: re-keyed four times in six rounds).
+#:
+#: Pinning the three scalar spellings this dataclass uses inverts it: an
+#: unrecognised annotation lands in the collection rule and owes a
+#: classification, so a new SPELLING fails closed and a new scalar KIND (say
+#: `int`) fails loudly rather than being waved through. Text comparison stops
+#: being load-bearing for coverage -- it only has to recognise three spellings,
+#: and being wrong about one of those is the safe direction.
+#:
+#: ⚠ Both string and object forms are covered by normalising the text, because
+#: a dataclass annotation reaches `dataclasses.fields` as a string under
+#: `from __future__ import annotations` and as the object without it.
+_SCALAR_SPEC_ANNOTATIONS = (
+    "str",
+    "Optional[str]",
+    "bool",
 )
+
+def _annotation_text(annotation) -> str:
+    """One normalised spelling for an annotation, however it arrives.
+
+    ⚠⚠ Three forms reach `dataclasses.fields`, and the first version of this
+    handled ONE. Without `from __future__ import annotations` a plain class
+    arrives as the class object and stringifies as `<class 'str'>`, a `typing`
+    construct as `typing.Optional[str]`, and a builtin generic as `list[str]` --
+    so a normaliser written against the third reads the first two as unknown.
+    Under the INVERTED rule that direction is safe (unknown means "treat it as a
+    collection", so it fails loudly) and it was still wrong: every scalar field
+    was reported as a collection at once, which is how it was found.
+    """
+    if isinstance(annotation, str):
+        text = annotation
+    elif isinstance(annotation, type):
+        text = annotation.__name__
+    else:
+        text = str(annotation)
+    return text.replace(" ", "").replace("typing.", "")
+
 
 def _spec_field_names() -> set[str]:
     return {f.name for f in dataclasses.fields(LanguageSpec)}
@@ -358,16 +397,15 @@ def _spec_field_names() -> set[str]:
 def _node_type_collection_fields() -> set[str]:
     """Fields of `LanguageSpec` whose values are collections of node types.
 
-    ⚠⚠ The SHAPE, not one spelling of it: `list[str]` (a channel's patterns)
-    and `dict[str, str]` (node type -> kind, which is how `symbol_node_types`
-    is spelled and the natural shape for any channel carrying a kind). Keying
-    this to lists alone let a dict-shaped channel through the rule written to
-    stop it, which is how review broke round three's version.
+    ⚠⚠ Defined by EXCLUSION, so an unrecognised annotation is a collection and
+    owes a classification. Keying it to the collection spellings instead let a
+    dict-shaped channel through (round three), and before that there was no rule
+    at all (round two) -- the same fail-open shape, twice, narrower each time.
     """
     return {
         f.name
         for f in dataclasses.fields(LanguageSpec)
-        if str(f.type).replace(" ", "") in _NODE_TYPE_COLLECTION_ANNOTATIONS
+        if _annotation_text(f.type) not in _SCALAR_SPEC_ANNOTATIONS
     }
 
 
@@ -609,6 +647,88 @@ def test_the_pending_set_is_exactly_what_review_saw():
     )
 
 
+def test_every_scalar_field_has_a_pinned_scalar_annotation():
+    """The inversion's own guard: a field named a scalar must be one.
+
+    ⚠ `_SCALAR_SPEC_FIELDS` is prose, `_SCALAR_SPEC_ANNOTATIONS` is the rule.
+    If a field in the first grows a collection annotation, the collection rule
+    already catches it -- this fails FIRST and says which of the two lists is
+    now wrong, which is the difference between a diagnosis and a puzzle.
+    """
+    annotations = {
+        f.name: _annotation_text(f.type) for f in dataclasses.fields(LanguageSpec)
+    }
+    wrong = {
+        name: annotations[name]
+        for name in sorted(_SCALAR_SPEC_FIELDS)
+        if annotations.get(name) not in _SCALAR_SPEC_ANNOTATIONS
+    }
+    assert not wrong, (
+        f"{wrong} are listed as scalar fields and are not annotated with a "
+        f"pinned scalar spelling {_SCALAR_SPEC_ANNOTATIONS}. Either the "
+        f"annotation changed -- in which case classify the field per the "
+        f"collection rule -- or a new scalar spelling needs adding to "
+        f"_SCALAR_SPEC_ANNOTATIONS deliberately (#757)."
+    )
+
+
+#: Where a spec is read from. Scoped, and the scope is the claim: a
+#: `LanguageSpec` is consumed by the parser and nowhere else, so this is where a
+#: dynamic read would hide one of its fields.
+_SPEC_READING_PACKAGE = "src/jcodemunch_mcp/parser"
+
+
+def _dynamic_attribute_reads() -> list[str]:
+    """`getattr(x, <not a literal>)` sites in the package that reads specs."""
+    sites = []
+    for path in _src_files():
+        posix = "src/" + path.as_posix().split("/src/", 1)[-1]
+        if not posix.startswith(_SPEC_READING_PACKAGE):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:  # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) > 1
+                and not isinstance(node.args[1], ast.Constant)
+            ):
+                sites.append(f"{posix}:{node.lineno}")
+    return sorted(set(sites))
+
+
+def test_no_dynamic_attribute_read_hides_a_spec_field():
+    """⚠⚠ An UNKNOWN read must not be reported as an absence.
+
+    `_reads_of` matches a literal attribute, `getattr` with a constant name and
+    a constant subscript. It cannot see `getattr(spec, name)` where `name` is a
+    variable -- and **that is exactly how this file reads the channels**:
+    `_spec_recognised` loops over `_EXTRACTION_CHANNELS` and calls
+    `getattr(spec, channel, None)`. If the parser ever adopts that style over
+    spec fields, the scan reports "unread" for a field read on every call, and
+    `test_a_field_classified_unread_is_still_unread` would then CERTIFY the
+    classification it exists to refuse.
+
+    So a dynamic read in the package that consumes specs is UNKNOWN, and UNKNOWN
+    fails loudly instead of counting as absence -- the same rule the product
+    applies to `has_any()` and to every tri-state probe in this tree. Measured
+    when written: six such calls exist under `src/`, none in the parser and none
+    over a spec (`logging`, `sys`, `self._mod`, two over a partial index row).
+    """
+    sites = _dynamic_attribute_reads()
+    assert not sites, (
+        f"{sites} read an attribute by a computed name inside "
+        f"{_SPEC_READING_PACKAGE}, so the unread scan can no longer tell a "
+        f"field nothing reads from one read dynamically. Either read the field "
+        f"by name, or make the unread classification prove itself another way "
+        f"-- an UNKNOWN read must not be published as an absence (#757)."
+    )
+
+
 def test_no_spec_field_is_unaccounted_for():
     """⚠⚠ The roster, pinned: a new field of `LanguageSpec` fails by name.
 
@@ -628,8 +748,10 @@ def test_no_spec_field_is_unaccounted_for():
     unaccounted = sorted(_spec_field_names() - accounted)
     assert not unaccounted, (
         f"LanguageSpec gained {unaccounted}, which nothing here accounts for. "
-        f"If it holds node types, classify it per the collection rule; if it is "
-        f"a scalar, add it to _SCALAR_SPEC_FIELDS with what it is (#757)."
+        f"If it holds node types, classify it per the collection rule. If it is "
+        f"a scalar, add it to _SCALAR_SPEC_FIELDS with what it is -- and note "
+        f"that this is not an exit: the collection rule keys on the ANNOTATION, "
+        f"so a collection named as a scalar still owes a classification (#757)."
     )
 
 

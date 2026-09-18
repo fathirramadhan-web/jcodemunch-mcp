@@ -40,8 +40,17 @@ by itself. That was the hollow row review found in #745's guard, one channel
 over. A form that stops extracting now returns to the inventory instead of
 hiding in it.
 
-⚠⚠ **The classification is keyed to the SHAPE, because keying it to a spelling
-was wrong twice.** A rule over `list[str]` alone misses the shape the canonical
+⚠⚠ **The classification is keyed to the SHAPE, and the rule is INVERTED so an
+unrecognised shape fails closed.** Keying it to a spelling was wrong twice --
+first no rule at all, then a rule over `list[str]` while the canonical channel
+`symbol_node_types` is a `dict[str, str]`, which is the natural spelling for any
+channel carrying a kind. Both versions were the same fail-open shape, narrower
+each time, which is #709's history exactly: re-keyed four times in six rounds,
+and what held was one shared predicate plus pinned cases. So the SCALAR
+spellings are pinned and every other annotation is treated as a collection of
+node types owing one of four classifications. `tuple[str, ...]`, `frozenset[str]`
+and a nested dict now land in the rule by default rather than escaping it, and a
+new scalar KIND fails loudly instead of being waved through. A rule over `list[str]` alone misses the shape the canonical
 channel has -- `symbol_node_types` is a `dict[str, str]`, node type to kind,
 which is the natural spelling for any channel carrying a kind -- so a
 dict-shaped fifth channel walked through the rule written to stop exactly that.
@@ -51,10 +60,19 @@ predicate plus pinned cases.
 
 ⚠ **The scan found a third write-only spec field on its first run.** #725 named
 `type_patterns` and `return_type_fields`; `param_fields` is required
-positionally, so all 79 specs fill it in, and nothing in `src/` reads it. It was
+positionally, so every spec fills it in, and nothing in `src/` reads it. It was
 classified "signature detail" here on the strength of its name until the scan
 disagreed, which is the argument for scanning a classification rather than
 stating one.
+
+⚠⚠ **An UNKNOWN read is not an absence, and the irony is load-bearing.** The
+scan matches a literal attribute, a constant `getattr` and a constant subscript;
+it cannot see `getattr(spec, name)` with a variable -- which is precisely how
+the channels themselves are read here. If the parser adopted that style over a
+spec field, the scan would report a field read on every call as unread and the
+unread test would CERTIFY the classification it exists to refuse. A dynamic read
+in the package that consumes specs now fails loudly instead, the same tri-state
+rule the product applies to `has_any()`.
 
 ⚠⚠ **The channel list is one gated roster, not a list two files transcribe.**
 Both readers import one tuple, and `LanguageSpec`'s field roster is pinned: a
