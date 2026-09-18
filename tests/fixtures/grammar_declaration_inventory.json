@@ -237,7 +237,6 @@
       "constructor_definition"
     ],
     "go": [
-      "const_declaration",
       "const_spec",
       "field_declaration",
       "import_declaration",
@@ -267,7 +266,6 @@
     ],
     "java": [
       "constant_declaration",
-      "field_declaration",
       "import_declaration",
       "local_variable_declaration",
       "module_declaration",
@@ -275,7 +273,6 @@
     ],
     "javascript": [
       "field_definition",
-      "lexical_declaration",
       "using_declaration",
       "variable_declaration"
     ],
@@ -339,7 +336,6 @@
       "variable_declaration"
     ],
     "php": [
-      "const_declaration",
       "function_static_declaration",
       "global_declaration",
       "namespace_definition",
@@ -358,7 +354,6 @@
     ],
     "rust": [
       "attribute_item",
-      "const_item",
       "extern_crate_declaration",
       "field_declaration",
       "foreign_mod_item",
@@ -367,7 +362,6 @@
       "let_declaration",
       "macro_definition",
       "mod_item",
-      "static_item",
       "use_declaration"
     ],
     "scala": [
@@ -411,13 +405,11 @@
     ],
     "tsx": [
       "ambient_declaration",
-      "lexical_declaration",
       "public_field_definition",
       "variable_declaration"
     ],
     "typescript": [
       "ambient_declaration",
-      "lexical_declaration",
       "public_field_definition",
       "variable_declaration"
     ]

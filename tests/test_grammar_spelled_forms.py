@@ -223,6 +223,43 @@ def _harvested_node_types(language, kinds):
     return frozenset(literals & kinds)
 
 
+#: Every channel a spec can extract a node type through.
+#:
+#: ⚠⚠ **FOUR, and this function read ONE for its whole life (#757).** A form
+#: fixed through `field_patterns` or `constant_patterns` stayed listed as
+#: unrecognised, so #735 left `java.field_declaration` in the inventory and
+#: #743 made the count GROW in the change that fixed PHP properties -- a file
+#: that names unindexed forms was naming indexed ones, and closing a gap could
+#: make it worse.
+#:
+#: ⚠⚠ **"Declared in a channel" is NOT "extracted by it", which is why this
+#: union ships with evidence.** `java.field_declaration` sat in
+#: `constant_patterns` for years while every ordinary field was dropped,
+#: because that channel required `static final`; a union by declaration alone
+#: would have called the form recognised and hidden the widest gap #724 found.
+#: `tests/test_inventory_reads_every_channel.py` owes a sample for every form
+#: this widening suppresses a row for, and proves the channel extracts it BY
+#: DELETION -- so a form that stops extracting returns to the inventory instead
+#: of hiding in it.
+#:
+#: ⚠ `variable_patterns` (#741) is read through `getattr`, so this does not
+#: depend on the order two branches merge in.
+_EXTRACTION_CHANNELS = (
+    "constant_patterns",
+    "field_patterns",
+    "variable_patterns",
+)
+
+
+def _spec_recognised(spec) -> set[str]:
+    """Every node type this spec can extract, across all four channels."""
+    recognised = set(getattr(spec, "symbol_node_types", None) or {})
+    for channel in _EXTRACTION_CHANNELS:
+        recognised |= set(getattr(spec, channel, None) or [])
+    return recognised
+
+
+
 @functools.lru_cache(maxsize=1)
 def _checkable_languages():
     """Every language whose recognised node types can be compared to a grammar.
@@ -241,7 +278,7 @@ def _checkable_languages():
         kinds = _grammar_kinds(language)
         if kinds is None:
             continue
-        declared = set(getattr(spec, "symbol_node_types", None) or {})
+        declared = _spec_recognised(spec)
         if declared:
             out[language] = (declared, kinds, "spec")
             continue
