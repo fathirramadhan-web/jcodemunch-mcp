@@ -40,6 +40,22 @@ by itself. That was the hollow row review found in #745's guard, one channel
 over. A form that stops extracting now returns to the inventory instead of
 hiding in it.
 
+⚠⚠ **The classification is keyed to the SHAPE, because keying it to a spelling
+was wrong twice.** A rule over `list[str]` alone misses the shape the canonical
+channel has -- `symbol_node_types` is a `dict[str, str]`, node type to kind,
+which is the natural spelling for any channel carrying a kind -- so a
+dict-shaped fifth channel walked through the rule written to stop exactly that.
+One predicate over node-type collections now covers both, and #709 is the
+precedent: re-keyed four times in six rounds, and what held was one shared
+predicate plus pinned cases.
+
+⚠ **The scan found a third write-only spec field on its first run.** #725 named
+`type_patterns` and `return_type_fields`; `param_fields` is required
+positionally, so all 79 specs fill it in, and nothing in `src/` reads it. It was
+classified "signature detail" here on the strength of its name until the scan
+disagreed, which is the argument for scanning a classification rather than
+stating one.
+
 ⚠⚠ **The channel list is one gated roster, not a list two files transcribe.**
 Both readers import one tuple, and `LanguageSpec`'s field roster is pinned: a
 fifth field fails by name and forces one decision, channel or not-a-channel with
