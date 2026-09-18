@@ -861,6 +861,15 @@ when a run looks green.
 ⚠ Added to the fast tier (92 files), because it answers a question about the
 specs that a commit can break and costs 0.6 s.
 
+### Fixed - Go's blank identifier `_` is indexed as a constant (#763)
+
+Go's blank identifier `_` is a discard target, not a name — it cannot be
+referenced, several can appear in one file, and each became a symbol under the
+same name competing in every ranking. An iota ladder such as
+`const ( _ = iota; KB; MB )` indexed three constants where only two are real.
+The constant channel now skips `_` at the per-spec loop level, so
+`const _, B = 1, 2` still yields `B`.
+
 ### Fixed - every Java field is a symbol, not only the `static final` ones (#735)
 
 A Java class indexed with its methods and none of its state. `private int

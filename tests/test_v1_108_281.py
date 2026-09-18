@@ -117,6 +117,18 @@ def test_go_unexported_lowercase_constants_are_kept():
     assert _constants(source, "probe.go", "go") == ["unexported"]
 
 
+def test_go_blank_identifier_is_not_a_constant():
+    """The iota ladder `const ( _ = iota; KB; MB )` must not index `_` (#763).
+
+    `_` is Go's blank identifier -- a discard target, not a name. It cannot be
+    referenced, and several can appear in one file, so each becomes a symbol
+    competing in every ranking under the same name. The constant channel must
+    skip it.
+    """
+    source = "package m\n\nconst (\n\t_ = iota\n\tKB\n\tMB\n)\n"
+    assert _constants(source, "a.go", "go") == ["KB", "MB"]
+
+
 # ── PHP ─────────────────────────────────────────────────────────────────────
 
 def test_php_comma_separated_constants_yield_every_name():

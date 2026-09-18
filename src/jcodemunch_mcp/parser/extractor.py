@@ -2472,6 +2472,8 @@ def _extract_go_constants(
                 break
             if child.type == "identifier":
                 name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", "replace")
+                if name == "_":
+                    continue  # blank identifier -- discard, not a symbol (#763)
                 found.append(_constant_symbol(name, node, source_bytes, filename, language))
     return found
 
