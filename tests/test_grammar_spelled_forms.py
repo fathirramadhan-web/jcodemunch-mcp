@@ -62,6 +62,7 @@ so a third language cannot join them unnoticed.
 """
 
 import ast
+import dataclasses
 import functools
 import re
 import inspect
@@ -71,7 +72,7 @@ import pathlib
 import pytest
 
 from jcodemunch_mcp.parser.grammar_pack import get_parser
-from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
+from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY, LanguageSpec
 
 
 BASELINE = pathlib.Path(__file__).parent / "fixtures" / "grammar_declaration_inventory.json"
@@ -258,6 +259,96 @@ def _spec_recognised(spec) -> set[str]:
         recognised |= set(getattr(spec, channel, None) or [])
     return recognised
 
+#: Channels named above that are NOT fields of `LanguageSpec` on this tree yet,
+#: each with the branch that adds one.
+#:
+#: ⚠⚠ **This is what stops `getattr` becoming permanent.** Every channel is
+#: read as `getattr(spec, name, None) or []`, so a MISSPELLED name and a field
+#: that has not merged yet are the same thing at the call site: the channel
+#: contributes nothing, forever, and nothing says so -- #725's
+#: write-only-field defect pointing the other way. A pending entry is legal
+#: only while the field genuinely has not arrived, and
+#: `test_a_pending_channel_is_still_pending` fails the moment it does, so the
+#: excuse cannot outlive the merge.
+_PENDING_CHANNELS = {"variable_patterns": "#741 / PR #753"}
+
+#: Every other field of `LanguageSpec`, with why it is not an extraction
+#: channel.
+#:
+#: ⚠ `type_patterns` and `return_type_fields` are the interesting entries: they
+#: ARE node-type lists, and they are read by NOTHING (#725). Including them
+#: would widen the recognised set by two dead declarations, which is the
+#: precise error this file exists to refuse. They belong here until something
+#: reads them.
+_NON_CHANNEL_SPEC_FIELDS = frozenset(
+    {
+        "ts_language",             # the grammar's name, not a node type
+        "symbol_node_types",       # the first channel, unioned in directly above
+        "name_fields",             # how to NAME a declared form, not what to extract
+        "param_fields",            # signature detail on an already-extracted node
+        "return_type_fields",      # declared by 14 specs, read by nothing (#725)
+        "docstring_strategy",      # a strategy name
+        "decorator_node_type",     # attached to a symbol, never one itself
+        "container_node_types",    # ownership, not extraction: a container is
+                                   # declared through `symbol_node_types` too
+        "type_patterns",           # declared by 19 specs, read by nothing (#725)
+        "decorator_from_children",  # a bool
+    }
+)
+
+
+def _spec_field_names() -> set[str]:
+    return {f.name for f in dataclasses.fields(LanguageSpec)}
+
+
+def test_every_extraction_channel_is_a_real_spec_field():
+    """A channel name that is not a field reads as an absent one, silently."""
+    unknown = sorted(
+        set(_EXTRACTION_CHANNELS) - _spec_field_names() - set(_PENDING_CHANNELS)
+    )
+    assert not unknown, (
+        f"{unknown} are read as extraction channels and are not fields of "
+        f"LanguageSpec -- either a typo, or a pending arrival that belongs in "
+        f"_PENDING_CHANNELS with its branch named (#757)."
+    )
+
+
+def test_a_pending_channel_is_still_pending():
+    """The `getattr` excuse dies when the field arrives.
+
+    ⚠ Same shape as `_KNOWN_GAPS` next door: an exemption that outlives its
+    reason stops being an exemption and becomes a hole.
+    """
+    arrived = sorted(name for name in _PENDING_CHANNELS if name in _spec_field_names())
+    assert not arrived, (
+        f"{arrived} are fields of LanguageSpec now, so the branch adding them "
+        f"has merged: drop the _PENDING_CHANNELS entry (#757)."
+    )
+
+
+def test_no_spec_field_is_an_unclassified_channel():
+    """⚠⚠ The gate for the defect this file just fixed, one level up.
+
+    #757 was a recognised set reading ONE of four channels. A FIFTH channel
+    added to `LanguageSpec` and not added to `_EXTRACTION_CHANNELS` re-creates
+    it exactly, and nothing about the new field would fail -- the inventory
+    would just start reporting an extracted form as a gap again, in the
+    direction this file is least able to notice, because a row that should not
+    be there looks like a row nobody has got to yet.
+
+    So the field ROSTER is pinned. A new field fails here by name and forces
+    one decision: is it a channel, or does it belong in
+    `_NON_CHANNEL_SPEC_FIELDS` with the reason it is not?
+    """
+    classified = set(_EXTRACTION_CHANNELS) | _NON_CHANNEL_SPEC_FIELDS
+    unclassified = sorted(_spec_field_names() - classified)
+    assert not unclassified, (
+        f"LanguageSpec gained {unclassified}, which nothing here classifies. "
+        f"If it is an extraction channel, add it to _EXTRACTION_CHANNELS -- and "
+        f"a sample per widened form in test_inventory_reads_every_channel.py; "
+        f"if it is not, add it to _NON_CHANNEL_SPEC_FIELDS with why (#757)."
+    )
+
 
 
 @functools.lru_cache(maxsize=1)
@@ -266,7 +357,9 @@ def _checkable_languages():
 
     Two sources, and the inventory records which:
 
-    * `spec` -- the language declares `symbol_node_types` (22 specs);
+    * `spec` -- the language declares node types in any extraction channel,
+      `symbol_node_types` or one of `_EXTRACTION_CHANNELS` (#757; 22 specs
+      declare the first, and `_spec_recognised` is what the arm tests);
     * `inline` -- the language declares none and its extractor function matches
       node types against literals in its body (32 more).
 
@@ -342,11 +435,24 @@ def test_every_declared_node_type_is_one_the_grammar_emits(language):
 
     ghosts = (declared - kinds) - excused
 
+    spec = LANGUAGE_REGISTRY[language]
+    where = {
+        node_type: sorted(
+            channel
+            for channel in ("symbol_node_types", *_EXTRACTION_CHANNELS)
+            if node_type in (getattr(spec, channel, None) or ())
+        )
+        for node_type in sorted(ghosts)
+    }
+
     assert not ghosts, (
-        f"{language}: {sorted(ghosts)} declared in symbol_node_types but the "
-        f"grammar never emits that node type -- the entry matches nothing and "
+        f"{language}: {where} -- declared in the channel(s) named, and the "
+        f"grammar never emits that node type, so the entry matches nothing and "
         f"the form is silently unextractable (#724). Check the grammar's own "
-        f"spelling with Language.node_kind_for_id."
+        f"spelling with Language.node_kind_for_id. ⚠ The channel is "
+        f"REPORTED rather than assumed: since #757 this property covers all "
+        f"four, and naming symbol_node_types unconditionally sent a reader to "
+        f"the wrong list."
     )
 
 

@@ -14,11 +14,13 @@ is naming what is unindexed.
 
 ⚠⚠ **The tell is the DIRECTION: closing a gap could make the count go UP.**
 #735 indexed every Java field through `field_patterns`, and
-`java.field_declaration` stayed listed as unrecognised. #743 moved
-`php.property_declaration` out of `symbol_node_types` into that same channel and
-the inventory grew from 272 to 273 **in the change that fixed it**. So the
-artifact a reader consults to pick the next gap was reporting indexed forms as
-gaps, and a fix could make its own evidence worse.
+`java.field_declaration` stayed listed as unrecognised -- that one is on `main`.
+The second is measured on #743's branch, which moves `php.property_declaration`
+out of `symbol_node_types` into the same channel: the inventory grows there from
+272 to 273 **in the change that fixes it**, and that branch is unmerged, so the
+figure describes it and not this tree. So the artifact a reader consults to pick
+the next gap was reporting indexed forms as gaps, and a fix could make its own
+evidence worse.
 
 ⚠⚠ **"Declared in a channel" is not "extracted by it", which is why this was
 correctly left alone twice and why the union ships with a second half.**

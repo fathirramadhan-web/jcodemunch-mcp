@@ -9,11 +9,12 @@ so three of them were invisible.
 
 ⚠⚠ **The tell is the DIRECTION: closing a gap could make the count go UP.**
 #735 fixed Java fields through `field_patterns`, so `java.field_declaration`
-stayed listed although every Java field is now indexed; #743 moved
-`php.property_declaration` out of `symbol_node_types` into the same channel and
-the inventory grew from 272 to 273 **in the change that fixed it**. A file that
-exists to name unindexed forms was naming indexed ones, and the fix for one
-made it worse.
+stayed listed although every Java field is now indexed -- that one is on `main`.
+⚠ The second is measured on #743's UNMERGED branch, which moves
+`php.property_declaration` out of `symbol_node_types` into the same channel:
+the inventory grows there from 272 to 273 **in the change that fixes it**. A
+file that exists to name unindexed forms was naming indexed ones, and the fix
+for one made it worse.
 
 ⚠⚠ **Why it was left alone twice, and what makes widening safe now.**
 "Declared in a channel" is not "extracted by it", and #735 is the proof:
@@ -35,9 +36,17 @@ from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
 
 #: The channels a form can reach the index through, besides `symbol_node_types`.
 #:
-#: ⚠ `variable_patterns` is read with `getattr` because it arrives with #741:
-#: the union must not depend on the order two branches merge in.
-_OTHER_CHANNELS = ("constant_patterns", "field_patterns", "variable_patterns")
+#: ⚠⚠ **IMPORTED, never restated.** A second copy of the channel list can be
+#: widened on one side only: add a channel to the recognised set and not here,
+#: and the union suppresses inventory rows while this file demands no sample --
+#: an unwitnessed widening, which is the one thing this file exists to prevent.
+#: The roster itself is gated next door by
+#: `test_no_spec_field_is_an_unclassified_channel`, so a fifth field of
+#: `LanguageSpec` fails by name instead of silently re-creating #757.
+#:
+#: ⚠ `variable_patterns` is read with `getattr` because it arrives with #741;
+#: `_PENDING_CHANNELS` there records that, and fails once it merges.
+from tests.test_grammar_spelled_forms import _EXTRACTION_CHANNELS as _OTHER_CHANNELS
 
 #: `(filename, source, name, kind)` per form the union newly recognises.
 #:
