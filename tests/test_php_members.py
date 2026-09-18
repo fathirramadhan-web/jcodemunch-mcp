@@ -226,8 +226,14 @@ def test_an_enum_body_is_a_container_and_that_took_a_second_fix():
     reason one list over from the one #744 names. Found by reading the output
     of the fix rather than the issue.
 
-    ⚠ Naming the enum a container also gives its methods their owner, which is
-    the same `Owner.member` correctness #698 was about.
+    ⚠⚠ **The method row below is a PIN, not proof of this change.** An enum
+    method was ALREADY owned before it: PHP spells one `method_declaration`,
+    which `symbol_node_types` maps straight to `method`, and
+    `parent_is_container` only promotes a `function`. The first version of this
+    docstring claimed the container change gave enum methods their owner, and
+    review measured the pre-change tree and found `E.m` there already. The row
+    stays, because naming an enum a container is exactly the kind of change
+    that could move member ownership and nothing else here would notice.
     """
     source = (
         "<?php\n"

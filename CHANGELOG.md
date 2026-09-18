@@ -36,9 +36,16 @@ language with the shape and was considered by neither.
 set, a class constant extracted and an ENUM constant still did not:
 `parent_is_container` is computed from the spec's `container_node_types`, which
 named class, trait and interface and not `enum_declaration`. Found by reading
-the output of the fix rather than the issue. Naming the enum a container also
-gives its methods their owner, which is the same `Owner.member` correctness
-#698 was about.
+the output of the fix rather than the issue.
+
+⚠ **Naming the enum a container buys the constant and nothing else**, which is
+narrower than the first version of this entry claimed. An enum METHOD was
+already owned: PHP spells it `method_declaration`, which `symbol_node_types`
+maps straight to `method`, and `parent_is_container` only promotes a
+`function`. The enum constant it does add comes out BARE, like every other
+class constant here. Caught in review, measured against the pre-change tree --
+and the claim contradicted this change's own test, which asserts
+`("EK", "constant", "EK")` two files over.
 
 ⚠ Properties route through `field_patterns` (#735's channel), not
 `symbol_node_types`: `public $a = 1, $b = 2;` is one node and two
@@ -61,7 +68,15 @@ holds it.
 ⚠ Blast radius: every PHP repo gains its class properties and class constants,
 so symbol counts rise and `find_dead_code` — which applies no `kind` filter —
 sees an unreferenced private property as it has seen a Java field since #735.
-Enum members change qualified name from bare to `E.member`.
+An enum gains its constants; nothing about an enum's methods changes.
+
+⚠ One live consumer asymmetry, named rather than fixed:
+`summarizer/file_summarize.py` counts members with `kind == "field"`, so a PHP
+class with five properties summarises as "(2 methods)" where the Java class one
+node type over gets "(2 methods, 5 fields)". Not a regression — PHP yielded no
+properties at all before — and not worth teaching one heuristic summary about
+two kinds inside a parser fix, but it is the price of the per-language kind and
+a reader should not have to discover it.
 
 ⚠ A PHP class constant keeps the BARE name that Java and Kotlin give theirs
 (`K`, not `C.K`). `_constant_symbol` hardcodes `qualified_name = name` and only
