@@ -76,7 +76,8 @@ class with five properties summarises as "(2 methods)" where the Java class one
 node type over gets "(2 methods, 5 fields)". Not a regression — PHP yielded no
 properties at all before — and not worth teaching one heuristic summary about
 two kinds inside a parser fix, but it is the price of the per-language kind and
-a reader should not have to discover it.
+a reader should not have to discover it. Filed as #760, because the asymmetry
+outlives the release that explains it.
 
 ⚠ A PHP class constant keeps the BARE name that Java and Kotlin give theirs
 (`K`, not `C.K`). `_constant_symbol` hardcodes `qualified_name = name` and only
