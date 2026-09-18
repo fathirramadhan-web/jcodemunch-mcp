@@ -343,9 +343,52 @@ def _all_languages_enabled(monkeypatch):
     monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
 
 
-def _kinds_extracted(language: str, node_type: str) -> set[str]:
+def expected_pairs(pairs, kind):
+    """The pairs of one kind, for a failure message that names them."""
+    return sorted(name for name, k in pairs if k == kind)
+
+
+def _pairs_extracted(language: str, node_type: str) -> set[tuple[str, str]]:
     filename, source = _SAMPLES[language][node_type]
-    return {s.kind for s in parse_file(source, filename, language)}
+    return {(s.name, s.kind) for s in parse_file(source, filename, language)}
+
+
+def _kinds_extracted(language: str, node_type: str) -> set[str]:
+    return {kind for _name, kind in _pairs_extracted(language, node_type)}
+
+
+def _pairs_without_the_form(language: str, node_type: str) -> set[tuple[str, str]]:
+    """The same sample, parsed with this node type REMOVED from the spec.
+
+    ⚠⚠ **This is what makes a row assert something about the form it names.**
+    A sample needs a container to be legal source -- a Rust associated type
+    needs its `trait`, a C# indexer needs its `class` -- and the container is
+    itself a declared form, so a row that asserts only "the expected kind
+    appears somewhere" can be satisfied by the WRAPPER. `rust.associated_type`
+    was exactly that: `trait_item` is also mapped to `type`, so deleting
+    `associated_type` from the spec left the row green. Found in review.
+
+    Removing the entry and re-parsing answers the question directly: what does
+    this declaration contribute that nothing else does?
+    """
+    import dataclasses
+
+    import jcodemunch_mcp.parser.extractor as extractor
+
+    spec = LANGUAGE_REGISTRY[language]
+    without = dataclasses.replace(
+        spec,
+        symbol_node_types={
+            nt: k for nt, k in spec.symbol_node_types.items() if nt != node_type
+        },
+    )
+    filename, source = _SAMPLES[language][node_type]
+    original = extractor.LANGUAGE_REGISTRY
+    extractor.LANGUAGE_REGISTRY = {**LANGUAGE_REGISTRY, language: without}
+    try:
+        return {(s.name, s.kind) for s in parse_file(source, filename, language)}
+    finally:
+        extractor.LANGUAGE_REGISTRY = original
 
 
 def test_every_declared_node_type_has_a_sample():
@@ -394,11 +437,20 @@ def test_the_two_lists_partition_every_declared_form():
     ids=[f"{lang}.{nt}" for lang, nt, _k in CHECKED_FORMS],
 )
 def test_a_declared_node_type_extracts_its_kind(language, node_type, kind):
-    """The property: what a spec advertises, the product emits.
+    """The property: what a spec advertises, the product emits -- FROM THIS FORM.
 
-    ⚠ Asserts the KIND rather than the name, because the kind is what the spec
-    declares. A form extracting under a different kind than its own map says is
-    the same class of defect and this catches it.
+    Two halves, and the second is what makes the first mean anything:
+
+    1. a symbol of the declared kind comes out of the sample;
+    2. it stops coming out when this node type is removed from the spec.
+
+    ⚠⚠ **Half 2 was missing and one row was hollow because of it.** A sample
+    needs a container to be legal source, containers are declared forms too, and
+    `rust.associated_type`'s container (`trait_item`) carries the SAME kind --
+    so the row passed with `associated_type` deleted from the spec entirely. The
+    deletion is the assertion now, on every row, which also means a future
+    sample cannot be written carelessly enough to reintroduce the hole. Found in
+    review; #745's own defect class, inside the file written to find it.
     """
     if node_type not in _SAMPLES.get(language, {}):
         pytest.fail(
@@ -406,13 +458,23 @@ def test_a_declared_node_type_extracts_its_kind(language, node_type, kind):
             f"test_every_declared_node_type_has_a_sample names them all at once"
         )
 
-    kinds = _kinds_extracted(language, node_type)
     expected = "method" if (language, node_type) in _PROMOTED_IN_A_CONTAINER else kind
+    with_form = _pairs_extracted(language, node_type)
+    kinds = {k for _n, k in with_form}
     assert expected in kinds, (
         f"{language} declares symbol_node_types[{node_type!r}] = {kind!r} and "
         f"its sample yields {sorted(kinds) or 'NOTHING'}. The declaration is "
         f"advertised and unreachable -- #712's shape one indirection down "
         f"(#745)."
+    )
+
+    contributed = with_form - _pairs_without_the_form(language, node_type)
+    assert any(k == expected for _n, k in contributed), (
+        f"{language}.{node_type} is declared {kind!r} and its sample still "
+        f"yields {sorted(expected_pairs(with_form, expected))} with the entry "
+        f"REMOVED from the spec, so this row proves nothing about the form it "
+        f"names -- the container is supplying the kind. Narrow the sample, or "
+        f"name the form that is really under test."
     )
 
 
@@ -426,6 +488,12 @@ def test_a_known_gap_is_still_a_gap(language, node_type):
     A record that outlives its defect is #724's shape: the list says the form
     is broken while the form works, and the next reader trusts the list. When
     this fails, DELETE the entry and add a sample -- never adjust it.
+
+    ⚠⚠ Asks what the form CONTRIBUTES, for the mirror of the reason the row
+    test does. "The declared kind is absent" would be wrong in the other
+    direction: a broken form inside a container of the same kind could never be
+    recorded as a gap at all, because the container's symbol would make this
+    test fail on a genuine defect.
     """
     sample = _SAMPLES.get(language, {}).get(node_type)
     assert sample is not None, (
@@ -433,13 +501,13 @@ def test_a_known_gap_is_still_a_gap(language, node_type):
         f"can tell whether it is still broken. Every gap entry carries the "
         f"source that fails."
     )
-    spec = LANGUAGE_REGISTRY[language]
-    kind = spec.symbol_node_types[node_type]
-    kinds = _kinds_extracted(language, node_type)
-    assert kind not in kinds, (
-        f"{language}.{node_type} now extracts as {kind!r}: the gap is FIXED. "
-        f"Delete its `_KNOWN_GAPS` entry -- the sample is already here "
-        f"({_KNOWN_GAPS[language][node_type]})."
+    contributed = _pairs_extracted(language, node_type) - _pairs_without_the_form(
+        language, node_type
+    )
+    assert not contributed, (
+        f"{language}.{node_type} now contributes {sorted(contributed)}: the gap "
+        f"is FIXED. Delete its `_KNOWN_GAPS` entry -- the sample is already "
+        f"here ({_KNOWN_GAPS[language][node_type]})."
     )
 
 

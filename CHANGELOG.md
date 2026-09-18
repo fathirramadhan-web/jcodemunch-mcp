@@ -42,6 +42,17 @@ the rest were already tracked:
   and are now pinned by a test that FAILS when either is fixed, so the record
   cannot outlive the defect.
 
+⚠⚠ **A row asserts TWO things, and review found the second one missing.** The
+declared kind must come out AND must stop coming out when the node type is
+removed from the spec. Without that second half one row was hollow:
+`rust.associated_type`'s sample needs a `trait` to be legal Rust, `trait_item`
+is ALSO mapped to `type`, and the row passed with `associated_type` deleted
+from the spec entirely. **A sample needs a container, a container is a declared
+form too, and a check asking only whether the kind APPEARS can be answered by
+the wrapper.** The deletion is the assertion on every row now, so a carelessly
+written future sample cannot reintroduce it -- #745's own defect class, inside
+the file written to find it.
+
 ⚠ **The samples are deliberately unavoidable.**
 `test_every_declared_node_type_has_a_sample` fails BY NAME for a declared form
 with no sample, so a spec cannot grow a form that nothing exercises — the
